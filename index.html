@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Nearby Commons Image Hunt v15 Auto Arrow</title>
+  <title>Nearby Commons Image Hunt v33 Clean</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     :root {
@@ -48,24 +48,23 @@
       inset: 0;
       display: grid;
       place-items: center;
-      background: var(--black);
+      background-color: var(--black);
+      background-image: var(--targetBackground, none);
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: contain;
       overflow: hidden;
     }
 
     .target-image {
-      display: block;
-      width: auto;
-      height: auto;
-      max-width: 100vw;
-      max-height: 100vh;
-      object-fit: contain;
-      object-position: center;
-      background: var(--black);
+      position: absolute;
+      width: 1px;
+      height: 1px;
       opacity: 0;
-      transition: opacity 150ms linear;
+      pointer-events: none;
     }
 
-    .target-image.is-ready { opacity: 1; }
+    .target-image.is-ready { opacity: 0; }
 
     .arrow-wrap {
       position: absolute;
@@ -128,7 +127,7 @@
       bottom: max(10px, env(safe-area-inset-bottom));
     }
 
-    .chip, .panel, .next-button, .permission-button, .status, .version-badge {
+    .chip, .panel, .next-button, .status, .version-badge {
       background: var(--black);
       color: var(--white);
       border: 1px solid var(--white);
@@ -205,7 +204,7 @@
       text-transform: uppercase;
     }
 
-    .next-button, .permission-button {
+    .next-button {
       padding: 9px 11px;
       cursor: pointer;
       border-radius: 0;
@@ -214,24 +213,6 @@
     }
 
     .next-button:disabled { opacity: 0.45; cursor: wait; }
-
-    .permission-wrap {
-      position: absolute;
-      left: 50%;
-      bottom: max(72px, calc(env(safe-area-inset-bottom) + 72px));
-      transform: translateX(-50%);
-      z-index: 8;
-      display: flex;
-      gap: 8px;
-    }
-
-    .permission-wrap.needs-permission {
-      display: flex;
-    }
-
-    .permission-wrap.hide-permission .permission-button {
-      display: none;
-    }
 
     .version-badge {
       right: max(10px, env(safe-area-inset-right));
@@ -511,6 +492,7 @@
           <span id="creditValue" class="optional">live GPS</span>
           <span id="licenseValue" class="optional">waiting for better fix</span>
           <a id="pageLink" href="https://commons.wikimedia.org/" target="_blank" rel="noreferrer">open file</a>
+          <a id="imageLink" href="https://commons.wikimedia.org/" target="_blank" rel="noreferrer">open image</a>
         </div>
       </section>
     </div>
@@ -519,12 +501,9 @@
       <button class="next-button" id="giveUpButton" type="button" disabled>give up</button>
     </div>
 
-    <div class="permission-wrap" id="permissionWrap">
-      <button class="permission-button" id="permissionButton" type="button">enable live arrow</button>
-    </div>
 
-    <div class="version-badge" id="versionBadge">v15</div>
-    <div class="status is-visible" id="statusText">Allow precise location, then wait outside for GPS to improve.</div>
+    <div class="version-badge" id="versionBadge">v33</div>
+    <div class="status is-visible" id="statusText">Requesting location permission.</div>
     <div class="reward" id="rewardText">+1 point</div>
 
     <section class="map-overlay" id="mapOverlay" aria-hidden="true">
@@ -553,12 +532,16 @@
   <script>
     const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
     const SEARCH_RADIUS_METRES = 10000;
-    const REFETCH_DISTANCE_METRES = 20;
-    const MIN_FETCH_INTERVAL_MS = 4000;
+    const SEARCH_RADIUS_TIERS = [500, 1000, 2500, 5000, 10000];
+    const MIN_AVAILABLE_IMAGES = 3;
+    const MIN_FETCH_INTERVAL_MS = 3500;
     const TARGET_ACCURACY_METRES = 15;
     const POINT_ACCURACY_METRES = 25;
     const TARGET_SWITCH_DEADBAND_METRES = 3;
-    const MAX_RESULTS = 100;
+    const MAX_RESULTS = 500;
+    const MAX_COMMONS_PAGES = 4;
+    const COMMONS_DETAIL_CHUNK_SIZE = 50;
+    const MAX_DETAIL_PAGE_IDS = 300;
     const THEME_KEY = "commonsImageHunt.theme.v1";
     const POINT_KEY = "commonsImageHunt.points.v1";
     const CLAIMED_KEY = "commonsImageHunt.claimedIds.v1";
@@ -582,6 +565,7 @@
 
     const elements = {
       stage: document.getElementById("stage"),
+      imageFrame: document.querySelector(".image-frame"),
       targetImage: document.getElementById("targetImage"),
       emptyState: document.getElementById("emptyState"),
       pointsButton: document.getElementById("pointsButton"),
@@ -595,9 +579,8 @@
       creditValue: document.getElementById("creditValue"),
       licenseValue: document.getElementById("licenseValue"),
       pageLink: document.getElementById("pageLink"),
+      imageLink: document.getElementById("imageLink"),
       giveUpButton: document.getElementById("giveUpButton"),
-      permissionWrap: document.getElementById("permissionWrap"),
-      permissionButton: document.getElementById("permissionButton"),
       statusText: document.getElementById("statusText"),
       rewardText: document.getElementById("rewardText"),
       versionBadge: document.getElementById("versionBadge"),
@@ -618,7 +601,12 @@
       user: null,
       searchCentre: null,
       searchCentreAccuracy: Infinity,
+      activeSearchRadius: SEARCH_RADIUS_TIERS[0],
       images: [],
+      lastCommonsResultCount: 0,
+      lastAvailableResultCount: 0,
+      lastRawGeosearchCount: 0,
+      lastDetailFetchCount: 0,
       currentId: null,
       compassHeading: null,
       movementHeading: null,
@@ -650,7 +638,11 @@
       hasArrowRotation: false,
       lastDisplayedTargetId: null,
       map: null,
-      pointLayer: null
+      pointLayer: null,
+      audioContext: null,
+      soundUnlocked: false,
+      locationStarted: false,
+      orientationStarted: false
     };
 
     init();
@@ -663,13 +655,18 @@
       elements.giveUpButton.addEventListener("click", giveUpCurrentTarget);
       elements.pointsButton.addEventListener("click", openPointsMap);
       elements.themeButton.addEventListener("click", toggleTheme);
+      document.addEventListener("pointerdown", unlockSoundOnce, { once: true });
       elements.mapCloseButton.addEventListener("click", closePointsMap);
-      elements.permissionButton.addEventListener("click", requestOrientationPermission);
       elements.targetImage.addEventListener("load", () => {
         elements.targetImage.classList.add("is-ready");
+        hideEmpty();
+      });
+      elements.targetImage.addEventListener("error", () => {
+        showStatus("The image URL failed in the hidden preloader; background render may still work.", 3600);
       });
       document.addEventListener("visibilitychange", handleVisibilityChange);
       setupOrientation();
+      checkLocationPermissionState();
       startLiveLocation();
       requestWakeLock();
       window.setInterval(updateCurrentTargetDisplay, 1000);
@@ -693,9 +690,185 @@
       elements.themeButton.setAttribute("aria-label", theme === "light" ? "Switch to dark mode" : "Switch to light mode");
     }
 
+    function unlockSoundOnce() {
+      unlockSound();
+    }
+
+    async function unlockSound() {
+      if (!state.audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+          showStatus("This browser does not support Web Audio.", 3200);
+          return null;
+        }
+        state.audioContext = new AudioContextClass();
+      }
+
+      if (state.audioContext.state === "suspended") {
+        try {
+          await state.audioContext.resume();
+        } catch (error) {
+          showStatus("Audio is blocked until the page gets a direct tap.", 3200);
+        }
+      }
+
+      state.soundUnlocked = state.audioContext.state === "running";
+      return state.audioContext;
+    }
+
+    async function playGiveUpSound() {
+      await unlockSound();
+      playFallbackGiveUpSound();
+    }
+
+    async function playPointSound() {
+      await unlockSound();
+      playFallbackKachingSound();
+      window.setTimeout(speakAwesome, 220);
+    }
+
+    function playFallbackGiveUpSound() {
+      const context = getAudioContext();
+      if (!context) {
+        return;
+      }
+
+      const now = context.currentTime;
+      const notes = [220, 196, 165];
+      notes.forEach((frequency, index) => {
+        const start = now + index * 0.26;
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const filter = context.createBiquadFilter();
+
+        oscillator.type = "sawtooth";
+        oscillator.frequency.setValueAtTime(frequency, start);
+        oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.82, start + 0.22);
+
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(720, start);
+
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.24, start + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.24);
+
+        oscillator.connect(filter);
+        filter.connect(gain);
+        gain.connect(context.destination);
+
+        oscillator.start(start);
+        oscillator.stop(start + 0.28);
+      });
+    }
+
+    function playFallbackKachingSound() {
+      const context = getAudioContext();
+      if (!context) {
+        speakAwesome();
+        return;
+      }
+
+      const now = context.currentTime;
+      const notes = [
+        { time: 0, frequency: 880, duration: 0.08 },
+        { time: 0.08, frequency: 1320, duration: 0.11 },
+        { time: 0.18, frequency: 1760, duration: 0.08 }
+      ];
+
+      notes.forEach(note => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const start = now + note.time;
+
+        oscillator.type = "triangle";
+        oscillator.frequency.setValueAtTime(note.frequency, start);
+
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.28, start + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + note.duration);
+
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(start);
+        oscillator.stop(start + note.duration + 0.02);
+      });
+
+    }
+
+    function speakAwesome() {
+      if (!("speechSynthesis" in window)) {
+        return;
+      }
+
+      try {
+        const utterance = new SpeechSynthesisUtterance("awesome");
+        utterance.rate = 1.05;
+        utterance.pitch = 1.08;
+        utterance.volume = 0.82;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      } catch (error) {
+        // Ignore unsupported speech synthesis errors.
+      }
+    }
+
+    function getAudioContext() {
+      if (!state.audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+          return null;
+        }
+        state.audioContext = new AudioContextClass();
+      }
+
+      if (state.audioContext.state === "suspended") {
+        state.audioContext.resume().catch(() => {});
+      }
+
+      return state.audioContext;
+    }
+
+    async function checkLocationPermissionState() {
+      if (!("geolocation" in navigator)) {
+        showEmpty("This browser does not support geolocation.");
+        return;
+      }
+
+      if (!window.isSecureContext && location.hostname !== "localhost") {
+        showEmpty("Location needs HTTPS. Open this through GitHub Pages, not a local file.");
+        showStatus("Location needs HTTPS. Open this through GitHub Pages.", 6000);
+        return;
+      }
+
+      if (!navigator.permissions || !navigator.permissions.query) {
+        showStatus("Requesting location permission.", 5000);
+        return;
+      }
+
+      try {
+        const permission = await navigator.permissions.query({ name: "geolocation" });
+        if (permission.state === "granted") {
+          showStatus("Location permission is already allowed. Starting live tracking.", 5000);
+        } else if (permission.state === "denied") {
+          showEmpty("Location is blocked for this site. Enable location in browser/site settings, then reload.");
+          showStatus("Location is blocked in browser/site settings.", 7000);
+        } else {
+          showStatus("Requesting location permission.", 5000);
+        }
+      } catch (error) {
+        showStatus("Requesting location permission.", 5000);
+      }
+    }
+
     function startLiveLocation() {
       if (!("geolocation" in navigator)) {
         showEmpty("This browser does not support geolocation.");
+        return;
+      }
+
+      if (!window.isSecureContext && location.hostname !== "localhost") {
+        showEmpty("Location needs HTTPS. Open this through GitHub Pages, not a local file.");
+        showStatus("Location needs HTTPS. Open this through GitHub Pages.", 6000);
         return;
       }
 
@@ -704,15 +877,16 @@
         maximumAge: 0
       };
 
-      state.watchId = navigator.geolocation.watchPosition(
-        handlePosition,
-        handleLocationError,
-        liveGpsOptions
-      );
+      if (state.watchId !== null) {
+        navigator.geolocation.clearWatch(state.watchId);
+      }
+
+      state.locationStarted = true;
+      requestOrientationPermissionIfNeeded();
 
       navigator.geolocation.getCurrentPosition(
         handlePosition,
-        handleInitialLocationError,
+        handleLocationError,
         {
           enableHighAccuracy: true,
           maximumAge: 0,
@@ -720,7 +894,13 @@
         }
       );
 
-      showStatus("Starting high-accuracy GPS. The nearest image will update as you move.", 6000);
+      state.watchId = navigator.geolocation.watchPosition(
+        handlePosition,
+        handleLocationError,
+        liveGpsOptions
+      );
+
+      showStatus("Requesting live GPS permission. Choose allow/precise location.", 7000);
     }
 
     function handlePosition(position) {
@@ -746,11 +926,13 @@
       updateImageDistances();
       chooseNearestAvailableTarget();
 
-      const movedFarEnough = !state.searchCentre || distanceBetween(state.user, state.searchCentre) > REFETCH_DISTANCE_METRES;
+      const refreshDistance = Math.max(70, Math.min(300, state.activeSearchRadius * 0.35));
+      const movedFarEnough = !state.searchCentre || distanceBetween(state.user, state.searchCentre) > refreshDistance;
       const accuracyImproved = state.user.accuracy < state.searchCentreAccuracy * 0.7;
+      const tooFewAvailable = state.images.filter(image => isAvailableImage(image)).length < MIN_AVAILABLE_IMAGES;
       const waitedLongEnough = (now - state.lastFetchAt) > MIN_FETCH_INTERVAL_MS;
 
-      if ((movedFarEnough || accuracyImproved || state.images.length === 0) && waitedLongEnough && !state.fetching) {
+      if ((movedFarEnough || accuracyImproved || state.images.length === 0 || tooFewAvailable) && waitedLongEnough && !state.fetching) {
         fetchNearbyCommonsImages(state.user.lat, state.user.lon, state.user.accuracy);
       }
 
@@ -759,13 +941,15 @@
       checkReachedTarget();
     }
 
-    function handleInitialLocationError(error) {
-      if (!state.user) {
-        showStatus("Still waiting for GPS. Try going outside and keep the screen awake.", 6000);
-      }
-    }
-
     function handleLocationError(error) {
+      if (error.code === error.PERMISSION_DENIED) {
+        const message = "Location permission was denied or blocked. Enable location for this site in browser settings, then reload.";
+        showEmpty(message);
+        showStatus(message, 8000);
+        checkLocationPermissionState();
+        return;
+      }
+
       if (state.user) {
         showStatus("GPS is still running, but the browser reported a temporary location error.", 3200);
         return;
@@ -773,13 +957,13 @@
 
       let message = "Location permission is needed for live image hunting.";
       if (error.code === error.POSITION_UNAVAILABLE) {
-        message = "The browser could not get a GPS position.";
+        message = "The browser could not get a GPS position. Check precise location is enabled.";
       }
       if (error.code === error.TIMEOUT) {
         message = "GPS is taking too long. Go outside and keep the page open.";
       }
       showEmpty(message);
-      showStatus(message, 6000);
+      showStatus(message, 8000);
     }
 
     async function requestWakeLock() {
@@ -803,39 +987,48 @@
 
     function setupOrientation() {
       if (!("DeviceOrientationEvent" in window)) {
-        setHeadingNotice("no heading");
+        setHeadingNotice("GPS movement heading only");
         return;
       }
 
       if (typeof DeviceOrientationEvent.requestPermission === "function") {
-        elements.permissionWrap.classList.add("needs-permission");
-        setHeadingNotice("tap arrow permission");
+        setHeadingNotice("tap start GPS for compass");
         return;
       }
 
-      elements.permissionWrap.classList.add("hide-permission");
       startOrientationListeners();
     }
 
-    async function requestOrientationPermission() {
+    async function requestOrientationPermissionIfNeeded() {
+      if (!("DeviceOrientationEvent" in window)) {
+        return;
+      }
+
+      if (typeof DeviceOrientationEvent.requestPermission !== "function") {
+        startOrientationListeners();
+        return;
+      }
+
       try {
         const result = await DeviceOrientationEvent.requestPermission();
         if (result === "granted") {
-          elements.permissionWrap.classList.remove("needs-permission");
-          elements.permissionWrap.classList.add("hide-permission");
           startOrientationListeners();
-          showStatus("Live facing direction enabled.", 2600);
+          showStatus("GPS and compass enabled.", 2600);
         } else {
-          setHeadingNotice("heading denied");
-          showStatus("Direction permission was not granted.", 3600);
+          setHeadingNotice("GPS movement heading only");
+          showStatus("Compass access was not allowed. Arrow will use walking direction.", 3600);
         }
       } catch (error) {
-        setHeadingNotice("heading blocked");
-        showStatus("The browser blocked device heading access. Use HTTPS on a phone.", 4200);
+        setHeadingNotice("GPS movement heading only");
+        showStatus("Compass access was blocked. Arrow will use walking direction.", 3600);
       }
     }
 
     function startOrientationListeners() {
+      if (state.orientationStarted) {
+        return;
+      }
+      state.orientationStarted = true;
       window.addEventListener("deviceorientationabsolute", handleOrientation, true);
       window.addEventListener("deviceorientation", handleOrientation, true);
       setHeadingNotice("finding heading");
@@ -883,39 +1076,122 @@
       state.searchCentreAccuracy = accuracy || Infinity;
       state.lastFetchAt = Date.now();
       elements.giveUpButton.disabled = true;
-      showStatus("Scanning geotagged Wikimedia Commons images nearby.", 1800);
+      showStatus("Scanning nearby Commons images.", 1400);
 
       try {
-        const url = new URL(COMMONS_API);
-        url.searchParams.set("origin", "*");
-        url.searchParams.set("action", "query");
-        url.searchParams.set("format", "json");
-        url.searchParams.set("generator", "geosearch");
-        url.searchParams.set("ggscoord", `${lat}|${lon}`);
-        url.searchParams.set("ggsradius", String(SEARCH_RADIUS_METRES));
-        url.searchParams.set("ggslimit", String(MAX_RESULTS));
-        url.searchParams.set("ggsnamespace", "6");
-        url.searchParams.set("ggsprimary", "all");
-        url.searchParams.set("prop", "imageinfo|coordinates");
-        url.searchParams.set("iiprop", "url|mime|size|extmetadata");
-        url.searchParams.set("iiurlwidth", "2200");
+        const userPoint = { lat, lon };
+        let selectedRadius = SEARCH_RADIUS_TIERS[SEARCH_RADIUS_TIERS.length - 1];
+        let selectedImages = [];
+        let selectedRawCount = 0;
+        let selectedDetailCount = 0;
+        let selectedAvailableCount = 0;
 
-        const response = await fetch(url.toString());
-        if (!response.ok) {
-          throw new Error(`Commons API returned ${response.status}`);
+        for (const radius of SEARCH_RADIUS_TIERS) {
+          showStatus(`Scanning within ${formatDistance(radius)}.`, 1200);
+
+          const hits = await fetchCommonsGeosearchHits(lat, lon, radius);
+          selectedRawCount = hits.length;
+
+          const hitById = new Map();
+          hits.forEach(hit => {
+            if (!hit?.pageid || !Number.isFinite(Number(hit.lat)) || !Number.isFinite(Number(hit.lon))) {
+              return;
+            }
+
+            const id = String(hit.pageid);
+            const userDistance = distanceBetween(userPoint, {
+              lat: Number(hit.lat),
+              lon: Number(hit.lon)
+            });
+
+            if (userDistance > radius) {
+              return;
+            }
+
+            const existing = hitById.get(id);
+            if (!existing || userDistance < existing.userDistance) {
+              hitById.set(id, {
+                id,
+                pageid: hit.pageid,
+                title: hit.title,
+                lat: Number(hit.lat),
+                lon: Number(hit.lon),
+                userDistance
+              });
+            }
+          });
+
+          const nearestHits = Array.from(hitById.values())
+            .sort((a, b) => a.userDistance - b.userDistance)
+            .slice(0, MAX_DETAIL_PAGE_IDS);
+
+          selectedDetailCount = nearestHits.length;
+
+          if (nearestHits.length === 0) {
+            selectedImages = [];
+            selectedAvailableCount = 0;
+          } else {
+            const hitMetaById = new Map(nearestHits.map(hit => [hit.id, hit]));
+            const pages = await fetchCommonsPageDetails(nearestHits.map(hit => hit.id));
+            const pagesWithGeo = pages.map(page => {
+              const meta = hitMetaById.get(String(page.pageid));
+              if (!meta) {
+                return page;
+              }
+
+              return {
+                ...page,
+                coordinates: page.coordinates?.length
+                  ? page.coordinates
+                  : [{
+                      lat: meta.lat,
+                      lon: meta.lon,
+                      primary: "",
+                      globe: "earth"
+                    }]
+              };
+            });
+
+            const normalised = pagesWithGeo.map(normaliseCommonsPage).filter(Boolean);
+            selectedImages = mergeImages([], normalised);
+            selectedImages.forEach(image => {
+              image.distance = distanceBetween(userPoint, image);
+              image.bearing = bearingBetween(userPoint.lat, userPoint.lon, image.lat, image.lon);
+            });
+            selectedImages = selectedImages
+              .filter(image => Number.isFinite(image.distance) && image.distance <= radius)
+              .sort((a, b) => a.distance - b.distance);
+
+            selectedAvailableCount = selectedImages.filter(image => isAvailableImage(image)).length;
+          }
+
+          selectedRadius = radius;
+
+          if (selectedAvailableCount >= MIN_AVAILABLE_IMAGES || radius === SEARCH_RADIUS_TIERS[SEARCH_RADIUS_TIERS.length - 1]) {
+            break;
+          }
         }
 
-        const data = await response.json();
-        const pages = Object.values(data.query?.pages || {});
-        const normalised = pages.map(normaliseCommonsPage).filter(Boolean);
+        state.activeSearchRadius = selectedRadius;
+        state.images = selectedImages;
+        state.lastRawGeosearchCount = selectedRawCount;
+        state.lastDetailFetchCount = selectedDetailCount;
+        state.lastCommonsResultCount = state.images.length;
+        state.lastAvailableResultCount = state.images.filter(image => isAvailableImage(image)).length;
 
-        state.images = mergeImages([], normalised);
         updateImageDistances();
         chooseNearestAvailableTarget();
 
         if (state.images.length === 0) {
-          showEmpty("No geotagged Commons image found within 10 km.");
-          showStatus("No geotagged Commons image found within 10 km.", 5000);
+          showEmpty(`No geotagged Commons images loaded within ${formatDistance(selectedRadius)}.`);
+          showStatus(`No geotagged Commons images loaded within ${formatDistance(selectedRadius)}.`, 4800);
+          return;
+        }
+
+        if (state.lastAvailableResultCount === 0) {
+          showEmpty(`All ${state.lastCommonsResultCount} loaded images within ${formatDistance(selectedRadius)} are claimed or skipped.`);
+          showStatus(`Loaded ${state.lastCommonsResultCount} images within ${formatDistance(selectedRadius)}, but none are available.`, 5200);
+          updateCurrentTargetDisplay(true);
           return;
         }
 
@@ -926,17 +1202,100 @@
           state.currentId = nextTarget.id;
         }
 
-        elements.giveUpButton.disabled = state.images.length < 1;
+        elements.giveUpButton.disabled = state.lastAvailableResultCount < 1;
+        showStatus(`Using ${formatDistance(selectedRadius)} radius: ${state.lastAvailableResultCount} available of ${state.lastCommonsResultCount} loaded.`, 3400);
         updateCurrentTargetDisplay(true);
       } catch (error) {
-        showStatus("Commons image search failed. Check connection and try again.", 5000);
+        showStatus("Commons image search failed.", 5000);
         if (state.images.length === 0) {
           showEmpty("Commons image search failed.");
         }
       } finally {
         state.fetching = false;
-        elements.giveUpButton.disabled = state.images.length < 1;
+        elements.giveUpButton.disabled = state.images.filter(image => isAvailableImage(image)).length < 1;
       }
+    }
+
+    async function fetchCommonsGeosearchHits(lat, lon, radius) {
+      const hits = [];
+      let continueParams = {};
+      let pageCount = 0;
+
+      while (pageCount < MAX_COMMONS_PAGES) {
+        const url = new URL(COMMONS_API);
+        url.searchParams.set("origin", "*");
+        url.searchParams.set("action", "query");
+        url.searchParams.set("format", "json");
+        url.searchParams.set("list", "geosearch");
+        url.searchParams.set("gscoord", `${lat}|${lon}`);
+        url.searchParams.set("gsradius", String(Math.min(radius, SEARCH_RADIUS_METRES)));
+        url.searchParams.set("gslimit", String(MAX_RESULTS));
+        url.searchParams.set("gsnamespace", "6");
+        url.searchParams.set("gsprimary", "all");
+
+        Object.entries(continueParams).forEach(([key, value]) => {
+          url.searchParams.set(key, value);
+        });
+
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`Commons geosearch returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        hits.push(...(data.query?.geosearch || []));
+
+        if (!data.continue) {
+          break;
+        }
+
+        continueParams = data.continue;
+        pageCount += 1;
+      }
+
+      return hits;
+    }
+
+    async function fetchCommonsPageDetails(pageIds) {
+      const pages = [];
+
+      for (let start = 0; start < pageIds.length; start += COMMONS_DETAIL_CHUNK_SIZE) {
+        const chunk = pageIds.slice(start, start + COMMONS_DETAIL_CHUNK_SIZE);
+        if (chunk.length === 0) {
+          continue;
+        }
+
+        const url = new URL(COMMONS_API);
+        url.searchParams.set("origin", "*");
+        url.searchParams.set("action", "query");
+        url.searchParams.set("format", "json");
+        url.searchParams.set("pageids", chunk.join("|"));
+        url.searchParams.set("prop", "imageinfo|coordinates");
+        url.searchParams.set("iiprop", "url|mime|size|extmetadata");
+        url.searchParams.set("iiurlwidth", "2200");
+
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`Commons details returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        pages.push(...Object.values(data.query?.pages || {}));
+      }
+
+      return pages;
+    }
+
+    function offsetPointEast(lat, lon, distanceMetres) {
+      const metresPerDegreeLon = 111320 * Math.max(0.1, Math.cos(toRadians(lat)));
+      return {
+        lat,
+        lon: normaliseLongitude(lon + distanceMetres / metresPerDegreeLon)
+      };
+    }
+
+    function normaliseLongitude(lon) {
+      return ((lon + 540) % 360) - 180;
     }
 
     function normaliseCommonsPage(page) {
@@ -961,6 +1320,7 @@
         lat: Number(coords.lat),
         lon: Number(coords.lon),
         imageUrl: imageInfo.thumburl || imageInfo.url,
+        originalImageUrl: imageInfo.url,
         pageUrl,
         creator,
         license,
@@ -989,6 +1349,32 @@
       state.images.sort((a, b) => a.distance - b.distance);
     }
 
+    function setVisualImage(target, forceImageReload = false) {
+      const imageUrl = target.imageUrl || target.originalImageUrl || "";
+      const originalUrl = target.originalImageUrl || imageUrl;
+
+      elements.imageLink.href = imageUrl || target.pageUrl || "https://commons.wikimedia.org/";
+
+      if (!imageUrl) {
+        elements.imageFrame.style.setProperty("--targetBackground", "none");
+        showEmpty("This Commons result has no usable image URL.");
+        return;
+      }
+
+      const targetChanged = state.lastDisplayedTargetId !== target.id;
+      if (forceImageReload || targetChanged || elements.targetImage.src !== imageUrl) {
+        state.lastDisplayedTargetId = target.id;
+        elements.imageFrame.style.setProperty("--targetBackground", `url("${cssEscapeUrl(imageUrl)}")`);
+        elements.targetImage.classList.remove("is-ready");
+        elements.targetImage.dataset.originalUrl = originalUrl;
+        elements.targetImage.src = imageUrl;
+      }
+    }
+
+    function cssEscapeUrl(url) {
+      return String(url).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    }
+
     function updateCurrentTargetDisplay(forceImageReload = false) {
       if (!state.user) {
         return;
@@ -1001,7 +1387,13 @@
       const target = getCurrentTarget();
       if (!target) {
         elements.distanceValue.textContent = "GPS active";
-        elements.directionValue.textContent = "searching";
+        elements.directionValue.textContent = state.lastCommonsResultCount
+          ? `${formatDistance(state.activeSearchRadius)} radius`
+          : state.lastDetailFetchCount
+            ? `${state.lastDetailFetchCount} details`
+            : state.lastRawGeosearchCount
+              ? `${state.lastRawGeosearchCount} raw`
+              : "searching";
         elements.headingValue.textContent = getLocationLabel();
         elements.giveUpButton.disabled = true;
         return;
@@ -1025,12 +1417,7 @@
       elements.licenseValue.textContent = target.license;
       elements.pageLink.href = target.pageUrl;
 
-      const targetChanged = state.lastDisplayedTargetId !== target.id;
-      if (forceImageReload || targetChanged || elements.targetImage.src !== target.imageUrl) {
-        state.lastDisplayedTargetId = target.id;
-        elements.targetImage.classList.remove("is-ready");
-        elements.targetImage.src = target.imageUrl;
-      }
+      setVisualImage(target, forceImageReload);
     }
 
     function chooseNearestAvailableTarget() {
@@ -1091,10 +1478,11 @@
 
       state.points = Math.max(0, state.points - 1);
       recordSkippedLocation(target);
+      playGiveUpSound();
       localStorage.setItem(POINT_KEY, String(state.points));
       elements.pointsValue.textContent = String(state.points);
 
-      state.images = state.images.filter(image => isAvailableImage(image));
+      updateImageDistances();
       chooseNearestAvailableTarget();
       const next = getCurrentTarget();
 
@@ -1105,8 +1493,11 @@
           : "Location skipped for 24 hours. 1 point deducted unless already at zero.";
         showStatus(status, 3200);
         updateCurrentTargetDisplay(true);
+      } else if (state.user) {
+        showStatus("No currently available loaded targets. Searching Commons again.", 3200);
+        fetchNearbyCommonsImages(state.user.lat, state.user.lon, state.user.accuracy);
       } else {
-        showEmpty("No more available nearby locations. Temporarily skipped places can return after 24 hours.");
+        showEmpty("No currently available loaded locations. Temporarily skipped places can return after 24 hours.");
         showStatus("No more available nearby locations. Some skipped places may return after 24 hours.", 4200);
       }
     }
@@ -1160,6 +1551,7 @@
         lat: target.lat,
         lon: target.lon,
         imageUrl: target.imageUrl,
+        originalImageUrl: target.originalImageUrl,
         pageUrl: target.pageUrl,
         creator: target.creator,
         license: target.license,
@@ -1200,33 +1592,40 @@
         return;
       }
 
+      claimTarget(target, `Target reached. GPS accuracy ${Math.round(state.user.accuracy)}m. +1 point.`);
+    }
+
+    function claimTarget(target, statusMessage) {
       state.claimedIds.add(target.id);
       state.claimedLocations.add(locationKey(target));
       saveClaimedTarget(target);
       state.autoFollow = true;
       state.points += 1;
-      state.rewardLockUntil = now + 5000;
+      state.rewardLockUntil = Date.now() + 5000;
       localStorage.setItem(POINT_KEY, String(state.points));
       localStorage.setItem(CLAIMED_KEY, JSON.stringify(Array.from(state.claimedIds)));
       localStorage.setItem(CLAIMED_LOCATION_KEY, JSON.stringify(Array.from(state.claimedLocations)));
-      migrateLegacySkippedIds();
-      initialiseTheme();
       elements.pointsValue.textContent = String(state.points);
       updateMapCountText();
       showReward();
-      showStatus(`Target reached. GPS accuracy ${Math.round(state.user.accuracy)}m. +1 point.`, 2600);
+      playPointSound();
+      showStatus(statusMessage, 2600);
       updateCurrentTargetDisplay();
 
       window.setTimeout(() => {
-        state.images = state.images.filter(image => isAvailableImage(image));
+        updateImageDistances();
         chooseNearestAvailableTarget();
         const next = getCurrentTarget();
         if (next) {
           updateCurrentTargetDisplay(true);
-        } else {
+        }
+
+        if (state.user) {
+          fetchNearbyCommonsImages(state.user.lat, state.user.lon, state.user.accuracy);
+        } else if (!next) {
           showEmpty("No more available nearby locations.");
         }
-      }, 1600);
+      }, 1200);
     }
 
     function updateMovementHeading(nextUser, now) {
@@ -1472,7 +1871,7 @@
 
     function showPointCard(target) {
       elements.mapCard.hidden = false;
-      elements.mapCardImage.src = target.imageUrl || "";
+      elements.mapCardImage.src = target.imageUrl || target.originalImageUrl || "";
       elements.mapCardImage.alt = target.title || "Claimed Commons image";
       elements.mapCardTitle.textContent = target.title || "Claimed point";
       elements.mapCardSource.textContent = target.source || "Wikimedia Commons";
@@ -1489,6 +1888,7 @@
         lat: target.lat,
         lon: target.lon,
         imageUrl: target.imageUrl,
+        originalImageUrl: target.originalImageUrl,
         pageUrl: target.pageUrl,
         creator: target.creator,
         license: target.license,
