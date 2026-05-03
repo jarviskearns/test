@@ -3,13 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Nearby Commons Image Hunt v12 No Rotate Button</title>
+  <title>Nearby Commons Image Hunt v14 Sharp Arrow</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     :root {
       --black: #000;
       --white: #fff;
       --arrowRotation: 0deg;
+    }
+
+    [data-theme="light"] {
+      --black: #fff;
+      --white: #000;
     }
 
     * { box-sizing: border-box; }
@@ -66,8 +71,8 @@
       position: absolute;
       left: 50%;
       top: 50%;
-      width: min(24vmin, 150px);
-      height: min(24vmin, 150px);
+      width: min(17vmin, 104px);
+      height: min(17vmin, 104px);
       transform: translate(-50%, -50%);
       pointer-events: none;
       display: grid;
@@ -99,13 +104,17 @@
     .top-left {
       top: max(10px, env(safe-area-inset-top));
       left: max(10px, env(safe-area-inset-left));
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
     }
 
     .top-right {
       top: max(10px, env(safe-area-inset-top));
       right: max(10px, env(safe-area-inset-right));
       text-align: right;
-      max-width: min(52vw, 380px);
+      width: min(430px, calc(100vw - 20px));
+      max-width: calc(100vw - 20px);
     }
 
     .bottom-left {
@@ -143,13 +152,27 @@
     }
 
     .readout {
-      min-width: min(260px, 52vw);
+      width: 100%;
+      min-height: 58px;
       padding: 7px 8px;
       display: grid;
       gap: 2px;
       font-size: 12px;
       line-height: 1.3;
       text-transform: uppercase;
+    }
+
+    .readout span,
+    .readout b {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #headingValue {
+      font-size: 10.5px;
+      letter-spacing: -0.01em;
     }
 
     .readout b {
@@ -271,6 +294,12 @@
 
     .empty.is-visible { opacity: 1; }
 
+
+    .theme-button {
+      min-width: 64px;
+      cursor: pointer;
+      text-align: center;
+    }
 
     .points-button {
       appearance: none;
@@ -412,11 +441,11 @@
         text-align: left;
       }
 
-      .readout { width: min(280px, calc(100vw - 20px)); }
+      .readout { width: 100%; }
       .bottom-left { width: calc(100vw - 92px); }
       .title { max-width: calc(100vw - 120px); }
       .meta span.optional { display: none; }
-      .arrow-wrap { width: min(30vmin, 140px); height: min(30vmin, 140px); }
+      .arrow-wrap { width: min(20vmin, 92px); height: min(20vmin, 92px); }
     }
     @media (max-width: 520px) {
       .map-card {
@@ -442,7 +471,8 @@
     <div class="arrow-wrap" aria-hidden="true">
       <div class="arrow" id="arrow">
         <svg viewBox="0 0 100 100" role="img" aria-label="Direction arrow">
-          <path d="M50 4 L78 58 L58 52 L58 94 L42 94 L42 52 L22 58 Z" fill="#fff" stroke="#000" stroke-width="4" stroke-linejoin="miter" />
+          <path d="M50 8 L82 88 L50 70 L18 88 Z" fill="var(--white)" stroke="var(--black)" stroke-width="5" stroke-linejoin="miter" />
+          <path d="M50 8 L50 70" fill="none" stroke="var(--black)" stroke-width="4" stroke-linecap="square" />
         </svg>
       </div>
     </div>
@@ -451,6 +481,7 @@
       <button class="chip points-button" id="pointsButton" type="button" aria-label="Open points map">
         <span>points</span><strong id="pointsValue">0</strong>
       </button>
+      <button class="chip theme-button" id="themeButton" type="button" aria-label="Toggle light and dark mode">light</button>
     </div>
 
     <div class="top-right">
@@ -516,6 +547,7 @@
     const POINT_ACCURACY_METRES = 25;
     const TARGET_SWITCH_DEADBAND_METRES = 3;
     const MAX_RESULTS = 100;
+    const THEME_KEY = "commonsImageHunt.theme.v1";
     const POINT_KEY = "commonsImageHunt.points.v1";
     const CLAIMED_KEY = "commonsImageHunt.claimedIds.v1";
     const CLAIMED_LOCATION_KEY = "commonsImageHunt.claimedLocations.v1";
@@ -538,6 +570,7 @@
       emptyState: document.getElementById("emptyState"),
       pointsButton: document.getElementById("pointsButton"),
       pointsValue: document.getElementById("pointsValue"),
+      themeButton: document.getElementById("themeButton"),
       distanceValue: document.getElementById("distanceValue"),
       directionValue: document.getElementById("directionValue"),
       headingValue: document.getElementById("headingValue"),
@@ -604,10 +637,12 @@
 
     function init() {
       migrateLegacySkippedIds();
+      initialiseTheme();
       elements.pointsValue.textContent = String(state.points);
       updateMapCountText();
       elements.giveUpButton.addEventListener("click", giveUpCurrentTarget);
       elements.pointsButton.addEventListener("click", openPointsMap);
+      elements.themeButton.addEventListener("click", toggleTheme);
       elements.mapCloseButton.addEventListener("click", closePointsMap);
       elements.permissionButton.addEventListener("click", requestOrientationPermission);
       elements.targetImage.addEventListener("load", () => {
@@ -618,6 +653,24 @@
       startLiveLocation();
       requestWakeLock();
       window.setInterval(updateCurrentTargetDisplay, 1000);
+    }
+
+    function initialiseTheme() {
+      const savedTheme = localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+      applyTheme(savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+      const nextTheme = currentTheme === "light" ? "dark" : "light";
+      applyTheme(nextTheme);
+      localStorage.setItem(THEME_KEY, nextTheme);
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      elements.themeButton.textContent = theme === "light" ? "dark" : "light";
+      elements.themeButton.setAttribute("aria-label", theme === "light" ? "Switch to dark mode" : "Switch to light mode");
     }
 
     function startLiveLocation() {
@@ -1136,6 +1189,7 @@
       localStorage.setItem(CLAIMED_KEY, JSON.stringify(Array.from(state.claimedIds)));
       localStorage.setItem(CLAIMED_LOCATION_KEY, JSON.stringify(Array.from(state.claimedLocations)));
       migrateLegacySkippedIds();
+      initialiseTheme();
       elements.pointsValue.textContent = String(state.points);
       updateMapCountText();
       showReward();
