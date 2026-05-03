@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Nearby Commons Image Hunt v10 Timed Skips</title>
+  <title>Nearby Commons Image Hunt v12 No Rotate Button</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     :root {
@@ -13,12 +12,9 @@
       --arrowRotation: 0deg;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body {
+    html, body {
       margin: 0;
       width: 100%;
       min-height: 100%;
@@ -28,10 +24,7 @@
       font-family: Arial, Helvetica, sans-serif;
     }
 
-    button,
-    a {
-      font: inherit;
-    }
+    button, a { font: inherit; }
 
     a {
       color: var(--white);
@@ -67,9 +60,7 @@
       transition: opacity 150ms linear;
     }
 
-    .target-image.is-ready {
-      opacity: 1;
-    }
+    .target-image.is-ready { opacity: 1; }
 
     .arrow-wrap {
       position: absolute;
@@ -98,15 +89,9 @@
       height: 100%;
     }
 
-    .no-heading .arrow {
-      opacity: 0.35;
-    }
+    .no-heading .arrow { opacity: 0.35; }
 
-    .top-left,
-    .top-right,
-    .bottom-left,
-    .bottom-right,
-    .status {
+    .top-left, .top-right, .bottom-left, .bottom-right, .status {
       position: absolute;
       z-index: 5;
     }
@@ -134,11 +119,7 @@
       bottom: max(10px, env(safe-area-inset-bottom));
     }
 
-    .chip,
-    .panel,
-    .next-button,
-    .permission-button,
-    .status {
+    .chip, .panel, .next-button, .permission-button, .status {
       background: var(--black);
       color: var(--white);
       border: 1px solid var(--white);
@@ -201,8 +182,7 @@
       text-transform: uppercase;
     }
 
-    .next-button,
-    .permission-button {
+    .next-button, .permission-button {
       padding: 9px 11px;
       cursor: pointer;
       border-radius: 0;
@@ -210,10 +190,7 @@
       text-transform: uppercase;
     }
 
-    .next-button:disabled {
-      opacity: 0.45;
-      cursor: wait;
-    }
+    .next-button:disabled { opacity: 0.45; cursor: wait; }
 
     .permission-wrap {
       position: absolute;
@@ -221,11 +198,16 @@
       bottom: max(72px, calc(env(safe-area-inset-bottom) + 72px));
       transform: translateX(-50%);
       z-index: 8;
-      display: none;
+      display: flex;
+      gap: 8px;
     }
 
-    .permission-wrap.is-visible {
-      display: block;
+    .permission-wrap.needs-permission {
+      display: flex;
+    }
+
+    .permission-wrap.hide-permission .permission-button {
+      display: none;
     }
 
     .status {
@@ -242,9 +224,7 @@
       transition: opacity 180ms ease;
     }
 
-    .status.is-visible {
-      opacity: 1;
-    }
+    .status.is-visible { opacity: 1; }
 
     .reward {
       position: absolute;
@@ -263,26 +243,13 @@
       pointer-events: none;
     }
 
-    .reward.is-visible {
-      animation: rewardPop 1200ms linear both;
-    }
+    .reward.is-visible { animation: rewardPop 1200ms linear both; }
 
     @keyframes rewardPop {
-      0% {
-        opacity: 0;
-      }
-
-      10% {
-        opacity: 1;
-      }
-
-      75% {
-        opacity: 1;
-      }
-
-      100% {
-        opacity: 0;
-      }
+      0% { opacity: 0; }
+      10% { opacity: 1; }
+      75% { opacity: 1; }
+      100% { opacity: 0; }
     }
 
     .empty {
@@ -302,9 +269,7 @@
       z-index: 3;
     }
 
-    .empty.is-visible {
-      opacity: 1;
-    }
+    .empty.is-visible { opacity: 1; }
 
 
     .points-button {
@@ -340,7 +305,7 @@
       pointer-events: none;
     }
 
-    .map-header>div,
+    .map-header > div,
     .map-close-button,
     .map-card {
       background: var(--black);
@@ -349,7 +314,7 @@
       box-shadow: none;
     }
 
-    .map-header>div {
+    .map-header > div {
       padding: 7px 8px;
       display: grid;
       gap: 2px;
@@ -447,28 +412,12 @@
         text-align: left;
       }
 
-      .readout {
-        width: min(280px, calc(100vw - 20px));
-      }
-
-      .bottom-left {
-        width: calc(100vw - 92px);
-      }
-
-      .title {
-        max-width: calc(100vw - 120px);
-      }
-
-      .meta span.optional {
-        display: none;
-      }
-
-      .arrow-wrap {
-        width: min(30vmin, 140px);
-        height: min(30vmin, 140px);
-      }
+      .readout { width: min(280px, calc(100vw - 20px)); }
+      .bottom-left { width: calc(100vw - 92px); }
+      .title { max-width: calc(100vw - 120px); }
+      .meta span.optional { display: none; }
+      .arrow-wrap { width: min(30vmin, 140px); height: min(30vmin, 140px); }
     }
-
     @media (max-width: 520px) {
       .map-card {
         grid-template-columns: 1fr;
@@ -483,7 +432,6 @@
     }
   </style>
 </head>
-
 <body>
   <main class="stage no-heading" id="stage">
     <div class="image-frame">
@@ -494,8 +442,7 @@
     <div class="arrow-wrap" aria-hidden="true">
       <div class="arrow" id="arrow">
         <svg viewBox="0 0 100 100" role="img" aria-label="Direction arrow">
-          <path d="M50 4 L78 58 L58 52 L58 94 L42 94 L42 52 L22 58 Z" fill="#fff" stroke="#000" stroke-width="4"
-            stroke-linejoin="miter" />
+          <path d="M50 4 L78 58 L58 52 L58 94 L42 94 L42 52 L22 58 Z" fill="#fff" stroke="#000" stroke-width="4" stroke-linejoin="miter" />
         </svg>
       </div>
     </div>
@@ -576,9 +523,14 @@
     const CLAIMED_TARGETS_KEY = "commonsImageHunt.claimedTargets.v1";
     const SKIPPED_LOCATIONS_KEY = "commonsImageHunt.skippedLocations.v2";
     const TEMP_SKIP_DURATION_MS = 24 * 60 * 60 * 1000;
-    const ARROW_SMOOTHING = 0.14;
-    const HEADING_SMOOTHING = 0.18;
-    const ARROW_DEADBAND_DEGREES = 2.4;
+    const MOVEMENT_HEADING_MIN_SPEED = 0.55;
+    const MOVEMENT_HEADING_MIN_DISTANCE = 4;
+    const MOVEMENT_HEADING_MAX_AGE_MS = 9000;
+    const COMPASS_ACCURACY_LIMIT_DEGREES = 35;
+    const ARROW_SMOOTHING = 0.08;
+    const COMPASS_SMOOTHING = 0.10;
+    const MOVEMENT_HEADING_SMOOTHING = 0.28;
+    const ARROW_DEADBAND_DEGREES = 3.2;
 
     const elements = {
       stage: document.getElementById("stage"),
@@ -618,8 +570,14 @@
       searchCentreAccuracy: Infinity,
       images: [],
       currentId: null,
-      heading: null,
+      compassHeading: null,
+      movementHeading: null,
+      effectiveHeading: null,
       headingSource: "none",
+      previousUser: null,
+      lastMovementHeadingAt: 0,
+      lastCompassHeadingAt: 0,
+      compassAccuracy: null,
       fetching: false,
       points: readNumber(POINT_KEY, 0),
       claimedIds: readSet(CLAIMED_KEY),
@@ -696,7 +654,7 @@
       const coords = position.coords;
       const now = Date.now();
 
-      state.user = {
+      const nextUser = {
         lat: coords.latitude,
         lon: coords.longitude,
         accuracy: coords.accuracy || 999,
@@ -704,15 +662,14 @@
         movementHeading: coords.heading
       };
 
+      updateMovementHeading(nextUser, now);
+      state.previousUser = state.user;
+      state.user = nextUser;
+
       state.lastLocationAt = now;
       state.bestAccuracy = Math.min(state.bestAccuracy, state.user.accuracy);
 
-      if (state.heading === null && typeof coords.heading === "number" && coords.speed > 0.8) {
-        state.heading = normaliseDegrees(coords.heading);
-        state.headingSource = "movement";
-        elements.stage.classList.remove("no-heading");
-      }
-
+      updateEffectiveHeading();
       updateImageDistances();
       chooseNearestAvailableTarget();
 
@@ -778,11 +735,12 @@
       }
 
       if (typeof DeviceOrientationEvent.requestPermission === "function") {
-        elements.permissionWrap.classList.add("is-visible");
+        elements.permissionWrap.classList.add("needs-permission");
         setHeadingNotice("tap arrow permission");
         return;
       }
 
+      elements.permissionWrap.classList.add("hide-permission");
       startOrientationListeners();
     }
 
@@ -790,7 +748,8 @@
       try {
         const result = await DeviceOrientationEvent.requestPermission();
         if (result === "granted") {
-          elements.permissionWrap.classList.remove("is-visible");
+          elements.permissionWrap.classList.remove("needs-permission");
+          elements.permissionWrap.classList.add("hide-permission");
           startOrientationListeners();
           showStatus("Live facing direction enabled.", 2600);
         } else {
@@ -811,27 +770,36 @@
 
     function handleOrientation(event) {
       let heading = null;
-      let source = "device";
+      let source = "compass";
 
       if (typeof event.webkitCompassHeading === "number") {
         heading = event.webkitCompassHeading;
+        state.compassAccuracy = typeof event.webkitCompassAccuracy === "number" ? event.webkitCompassAccuracy : null;
         source = "compass";
-      } else if (typeof event.alpha === "number") {
+      } else if (typeof event.alpha === "number" && (event.absolute || event.type === "deviceorientationabsolute")) {
         const screenAngle = getScreenAngle();
         heading = (360 - event.alpha + screenAngle + 360) % 360;
-        source = event.absolute ? "absolute" : "approx";
+        state.compassAccuracy = null;
+        source = "absolute";
+      } else {
+        return;
       }
 
       if (heading === null || Number.isNaN(heading)) {
         return;
       }
 
+      if (state.compassAccuracy !== null && state.compassAccuracy > COMPASS_ACCURACY_LIMIT_DEGREES) {
+        return;
+      }
+
       const cleanHeading = normaliseDegrees(heading);
-      state.heading = state.heading === null
+      state.compassHeading = state.compassHeading === null
         ? cleanHeading
-        : smoothAngle(state.heading, cleanHeading, HEADING_SMOOTHING);
+        : smoothAngle(state.compassHeading, cleanHeading, COMPASS_SMOOTHING);
+      state.lastCompassHeadingAt = Date.now();
       state.headingSource = source;
-      elements.stage.classList.remove("no-heading");
+      updateEffectiveHeading();
       updateCurrentTargetDisplay();
     }
 
@@ -968,7 +936,10 @@
       elements.giveUpButton.disabled = false;
 
       const reached = isClaimedTarget(target);
-      const relativeBearing = state.heading === null ? target.bearing : normaliseDegrees(target.bearing - state.heading);
+      updateEffectiveHeading();
+      const relativeBearing = state.effectiveHeading === null
+        ? target.bearing
+        : normaliseDegrees(target.bearing - state.effectiveHeading);
       updateArrowRotation(relativeBearing);
 
       elements.distanceValue.textContent = `${formatDistance(target.distance)} away`;
@@ -1056,8 +1027,8 @@
       if (next) {
         const skippedRecord = state.skippedLocations[key];
         const status = skippedRecord && skippedRecord.permanent
-          ? "Location skipped permanently. 1 point deducted."
-          : "Location skipped for 24 hours. 1 point deducted.";
+          ? "Location skipped permanently. 1 point deducted unless already at zero."
+          : "Location skipped for 24 hours. 1 point deducted unless already at zero.";
         showStatus(status, 3200);
         updateCurrentTargetDisplay(true);
       } else {
@@ -1183,6 +1154,59 @@
       }, 1600);
     }
 
+    function updateMovementHeading(nextUser, now) {
+      const gpsHeading = typeof nextUser.movementHeading === "number" && Number.isFinite(nextUser.movementHeading)
+        ? normaliseDegrees(nextUser.movementHeading)
+        : null;
+
+      if (gpsHeading !== null && Number(nextUser.speed || 0) >= MOVEMENT_HEADING_MIN_SPEED) {
+        state.movementHeading = state.movementHeading === null
+          ? gpsHeading
+          : smoothAngle(state.movementHeading, gpsHeading, MOVEMENT_HEADING_SMOOTHING);
+        state.lastMovementHeadingAt = now;
+        return;
+      }
+
+      if (!state.user) {
+        return;
+      }
+
+      const movedDistance = distanceBetween(state.user, nextUser);
+      if (movedDistance < MOVEMENT_HEADING_MIN_DISTANCE) {
+        return;
+      }
+
+      const calculatedHeading = bearingBetween(state.user.lat, state.user.lon, nextUser.lat, nextUser.lon);
+      state.movementHeading = state.movementHeading === null
+        ? calculatedHeading
+        : smoothAngle(state.movementHeading, calculatedHeading, MOVEMENT_HEADING_SMOOTHING);
+      state.lastMovementHeadingAt = now;
+    }
+
+    function updateEffectiveHeading() {
+      const now = Date.now();
+      const hasRecentMovementHeading = state.movementHeading !== null
+        && now - state.lastMovementHeadingAt < MOVEMENT_HEADING_MAX_AGE_MS;
+
+      if (hasRecentMovementHeading) {
+        state.effectiveHeading = state.movementHeading;
+        state.headingSource = "move";
+        elements.stage.classList.remove("no-heading");
+        return;
+      }
+
+      if (state.compassHeading !== null) {
+        state.effectiveHeading = state.compassHeading;
+        state.headingSource = "compass";
+        elements.stage.classList.remove("no-heading");
+        return;
+      }
+
+      state.effectiveHeading = null;
+      state.headingSource = "no heading";
+      elements.stage.classList.add("no-heading");
+    }
+
     function updateArrowRotation(targetRotation) {
       const cleanTarget = normaliseDegrees(targetRotation);
 
@@ -1222,7 +1246,7 @@
         quality = "usable";
       }
 
-      const headingText = state.heading === null ? "" : ` · heading ${Math.round(state.heading)}°`;
+      const headingText = state.effectiveHeading === null ? "" : ` · ${state.headingSource} ${Math.round(state.effectiveHeading)}°`;
       return `GPS ${quality} ±${accuracy}m · best ±${Math.round(state.bestAccuracy)}m · ${age}s${headingText}`;
     }
 
@@ -1504,5 +1528,4 @@
     }
   </script>
 </body>
-
 </html>
