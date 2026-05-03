@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Nearby Commons Image Hunt v10 Timed Skips</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --black: #000;
+      --white: #fff;
+      --arrowRotation: 0deg;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      overflow: hidden;
+      background: var(--black);
+      color: var(--white);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    button,
+    a {
+      font: inherit;
+    }
+
+    a {
+      color: var(--white);
+      text-decoration: none;
+      border-bottom: 1px solid var(--white);
+    }
+
+    .stage {
+      position: fixed;
+      inset: 0;
+      background: var(--black);
+    }
+
+    .image-frame {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: var(--black);
+      overflow: hidden;
+    }
+
+    .target-image {
+      display: block;
+      width: auto;
+      height: auto;
+      max-width: 100vw;
+      max-height: 100vh;
+      object-fit: contain;
+      object-position: center;
+      background: var(--black);
+      opacity: 0;
+      transition: opacity 150ms linear;
+    }
+
+    .target-image.is-ready {
+      opacity: 1;
+    }
+
+    .arrow-wrap {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: min(24vmin, 150px);
+      height: min(24vmin, 150px);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: grid;
+      place-items: center;
+      opacity: 0.9;
+      z-index: 4;
+    }
+
+    .arrow {
+      width: 100%;
+      height: 100%;
+      transform: rotate(var(--arrowRotation));
+      transition: transform 100ms linear, opacity 180ms ease;
+    }
+
+    .arrow svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .no-heading .arrow {
+      opacity: 0.35;
+    }
+
+    .top-left,
+    .top-right,
+    .bottom-left,
+    .bottom-right,
+    .status {
+      position: absolute;
+      z-index: 5;
+    }
+
+    .top-left {
+      top: max(10px, env(safe-area-inset-top));
+      left: max(10px, env(safe-area-inset-left));
+    }
+
+    .top-right {
+      top: max(10px, env(safe-area-inset-top));
+      right: max(10px, env(safe-area-inset-right));
+      text-align: right;
+      max-width: min(52vw, 380px);
+    }
+
+    .bottom-left {
+      left: max(10px, env(safe-area-inset-left));
+      bottom: max(10px, env(safe-area-inset-bottom));
+      width: min(760px, calc(100vw - 20px));
+    }
+
+    .bottom-right {
+      right: max(10px, env(safe-area-inset-right));
+      bottom: max(10px, env(safe-area-inset-bottom));
+    }
+
+    .chip,
+    .panel,
+    .next-button,
+    .permission-button,
+    .status {
+      background: var(--black);
+      color: var(--white);
+      border: 1px solid var(--white);
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+
+    .chip {
+      min-height: 34px;
+      padding: 6px 8px;
+      font-size: 12px;
+      line-height: 1.3;
+      text-transform: uppercase;
+    }
+
+    .chip strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .readout {
+      min-width: min(260px, 52vw);
+      padding: 7px 8px;
+      display: grid;
+      gap: 2px;
+      font-size: 12px;
+      line-height: 1.3;
+      text-transform: uppercase;
+    }
+
+    .readout b {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .panel {
+      padding: 8px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .title {
+      max-width: 68ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      font-size: 11px;
+      line-height: 1.35;
+      text-transform: uppercase;
+    }
+
+    .next-button,
+    .permission-button {
+      padding: 9px 11px;
+      cursor: pointer;
+      border-radius: 0;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .next-button:disabled {
+      opacity: 0.45;
+      cursor: wait;
+    }
+
+    .permission-wrap {
+      position: absolute;
+      left: 50%;
+      bottom: max(72px, calc(env(safe-area-inset-bottom) + 72px));
+      transform: translateX(-50%);
+      z-index: 8;
+      display: none;
+    }
+
+    .permission-wrap.is-visible {
+      display: block;
+    }
+
+    .status {
+      left: 50%;
+      top: max(10px, env(safe-area-inset-top));
+      transform: translateX(-50%);
+      width: min(560px, calc(100vw - 20px));
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease;
+    }
+
+    .status.is-visible {
+      opacity: 1;
+    }
+
+    .reward {
+      position: absolute;
+      z-index: 12;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      padding: 12px 14px;
+      background: var(--white);
+      color: var(--black);
+      border: 1px solid var(--black);
+      font-size: 16px;
+      font-weight: 700;
+      text-transform: uppercase;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .reward.is-visible {
+      animation: rewardPop 1200ms linear both;
+    }
+
+    @keyframes rewardPop {
+      0% {
+        opacity: 0;
+      }
+
+      10% {
+        opacity: 1;
+      }
+
+      75% {
+        opacity: 1;
+      }
+
+      100% {
+        opacity: 0;
+      }
+    }
+
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      text-align: center;
+      color: var(--white);
+      font-size: 13px;
+      line-height: 1.5;
+      background: var(--black);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease;
+      z-index: 3;
+    }
+
+    .empty.is-visible {
+      opacity: 1;
+    }
+
+
+    .points-button {
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .map-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      background: var(--black);
+      color: var(--white);
+    }
+
+    .map-overlay.is-visible {
+      display: block;
+    }
+
+    .map-header {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: max(10px, env(safe-area-inset-top));
+      z-index: 40;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .map-header>div,
+    .map-close-button,
+    .map-card {
+      background: var(--black);
+      color: var(--white);
+      border: 1px solid var(--white);
+      box-shadow: none;
+    }
+
+    .map-header>div {
+      padding: 7px 8px;
+      display: grid;
+      gap: 2px;
+      font-size: 12px;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .map-header strong {
+      font-size: 15px;
+    }
+
+    .map-close-button {
+      padding: 9px 11px;
+      cursor: pointer;
+      border-radius: 0;
+      font-size: 12px;
+      text-transform: uppercase;
+      pointer-events: auto;
+    }
+
+    .map-canvas {
+      position: absolute;
+      inset: 0;
+      background: var(--black);
+      filter: grayscale(1) contrast(1.05);
+    }
+
+    .leaflet-control-attribution {
+      background: var(--black) !important;
+      color: var(--white) !important;
+      border-color: var(--white) !important;
+      box-shadow: none !important;
+    }
+
+    .leaflet-control-attribution a {
+      color: var(--white) !important;
+    }
+
+    .point-marker {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: #00ff00;
+      border: 2px solid #000;
+    }
+
+    .map-card {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: max(10px, env(safe-area-inset-bottom));
+      z-index: 41;
+      max-height: min(42vh, 320px);
+      display: grid;
+      grid-template-columns: minmax(88px, 34vw) 1fr;
+      overflow: hidden;
+    }
+
+    .map-card[hidden] {
+      display: none;
+    }
+
+    .map-card img {
+      width: 100%;
+      height: 100%;
+      max-height: min(42vh, 320px);
+      object-fit: contain;
+      background: var(--black);
+      border-right: 1px solid var(--white);
+    }
+
+    .map-card-body {
+      padding: 8px;
+      display: grid;
+      align-content: start;
+      gap: 4px;
+      font-size: 11px;
+      line-height: 1.35;
+      text-transform: uppercase;
+      overflow: auto;
+    }
+
+    .map-card-body strong {
+      font-size: 14px;
+    }
+
+    @media (max-width: 720px) {
+      .top-right {
+        top: auto;
+        right: auto;
+        left: max(10px, env(safe-area-inset-left));
+        bottom: max(84px, calc(env(safe-area-inset-bottom) + 84px));
+        max-width: calc(100vw - 20px);
+        text-align: left;
+      }
+
+      .readout {
+        width: min(280px, calc(100vw - 20px));
+      }
+
+      .bottom-left {
+        width: calc(100vw - 92px);
+      }
+
+      .title {
+        max-width: calc(100vw - 120px);
+      }
+
+      .meta span.optional {
+        display: none;
+      }
+
+      .arrow-wrap {
+        width: min(30vmin, 140px);
+        height: min(30vmin, 140px);
+      }
+    }
+
+    @media (max-width: 520px) {
+      .map-card {
+        grid-template-columns: 1fr;
+        max-height: 52vh;
+      }
+
+      .map-card img {
+        height: 24vh;
+        border-right: 0;
+        border-bottom: 1px solid var(--white);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="stage no-heading" id="stage">
+    <div class="image-frame">
+      <img class="target-image" id="targetImage" alt="Nearest geotagged Wikimedia Commons target" />
+      <div class="empty is-visible" id="emptyState">Waiting for live GPS permission.</div>
+    </div>
+
+    <div class="arrow-wrap" aria-hidden="true">
+      <div class="arrow" id="arrow">
+        <svg viewBox="0 0 100 100" role="img" aria-label="Direction arrow">
+          <path d="M50 4 L78 58 L58 52 L58 94 L42 94 L42 52 L22 58 Z" fill="#fff" stroke="#000" stroke-width="4"
+            stroke-linejoin="miter" />
+        </svg>
+      </div>
+    </div>
+
+    <div class="top-left">
+      <button class="chip points-button" id="pointsButton" type="button" aria-label="Open points map">
+        <span>points</span><strong id="pointsValue">0</strong>
+      </button>
+    </div>
+
+    <div class="top-right">
+      <div class="chip readout">
+        <span id="distanceValue">waiting for GPS</span>
+        <b id="directionValue">—</b>
+        <span id="headingValue">accuracy pending</span>
+      </div>
+    </div>
+
+    <div class="bottom-left">
+      <section class="panel" aria-live="polite">
+        <div class="title" id="imageTitle">Nearby Commons Image Hunt</div>
+        <div class="meta">
+          <span id="sourceValue">Wikimedia Commons</span>
+          <span id="creditValue" class="optional">live GPS</span>
+          <span id="licenseValue" class="optional">waiting for better fix</span>
+          <a id="pageLink" href="https://commons.wikimedia.org/" target="_blank" rel="noreferrer">open file</a>
+        </div>
+      </section>
+    </div>
+
+    <div class="bottom-right">
+      <button class="next-button" id="giveUpButton" type="button" disabled>give up</button>
+    </div>
+
+    <div class="permission-wrap" id="permissionWrap">
+      <button class="permission-button" id="permissionButton" type="button">enable live arrow</button>
+    </div>
+
+    <div class="status is-visible" id="statusText">Allow precise location, then wait outside for GPS to improve.</div>
+    <div class="reward" id="rewardText">+1 point</div>
+
+    <section class="map-overlay" id="mapOverlay" aria-hidden="true">
+      <div class="map-header">
+        <div>
+          <strong>points map</strong>
+          <span id="mapCountText">0 locations</span>
+        </div>
+        <button class="map-close-button" id="mapCloseButton" type="button">close</button>
+      </div>
+      <div class="map-canvas" id="pointsMap"></div>
+      <article class="map-card" id="mapCard" hidden>
+        <img id="mapCardImage" alt="" />
+        <div class="map-card-body">
+          <strong id="mapCardTitle">Point</strong>
+          <span id="mapCardSource">Wikimedia Commons</span>
+          <span id="mapCardCredit">Unknown creator</span>
+          <span id="mapCardLicense">Licence listed on Commons</span>
+          <a id="mapCardLink" href="https://commons.wikimedia.org/" target="_blank" rel="noreferrer">open file</a>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
+    const SEARCH_RADIUS_METRES = 10000;
+    const REFETCH_DISTANCE_METRES = 20;
+    const MIN_FETCH_INTERVAL_MS = 4000;
+    const TARGET_ACCURACY_METRES = 15;
+    const POINT_ACCURACY_METRES = 25;
+    const TARGET_SWITCH_DEADBAND_METRES = 3;
+    const MAX_RESULTS = 100;
+    const POINT_KEY = "commonsImageHunt.points.v1";
+    const CLAIMED_KEY = "commonsImageHunt.claimedIds.v1";
+    const CLAIMED_LOCATION_KEY = "commonsImageHunt.claimedLocations.v1";
+    const SKIPPED_KEY = "commonsImageHunt.skippedIds.v1";
+    const CLAIMED_TARGETS_KEY = "commonsImageHunt.claimedTargets.v1";
+    const SKIPPED_LOCATIONS_KEY = "commonsImageHunt.skippedLocations.v2";
+    const TEMP_SKIP_DURATION_MS = 24 * 60 * 60 * 1000;
+    const ARROW_SMOOTHING = 0.14;
+    const HEADING_SMOOTHING = 0.18;
+    const ARROW_DEADBAND_DEGREES = 2.4;
+
+    const elements = {
+      stage: document.getElementById("stage"),
+      targetImage: document.getElementById("targetImage"),
+      emptyState: document.getElementById("emptyState"),
+      pointsButton: document.getElementById("pointsButton"),
+      pointsValue: document.getElementById("pointsValue"),
+      distanceValue: document.getElementById("distanceValue"),
+      directionValue: document.getElementById("directionValue"),
+      headingValue: document.getElementById("headingValue"),
+      imageTitle: document.getElementById("imageTitle"),
+      sourceValue: document.getElementById("sourceValue"),
+      creditValue: document.getElementById("creditValue"),
+      licenseValue: document.getElementById("licenseValue"),
+      pageLink: document.getElementById("pageLink"),
+      giveUpButton: document.getElementById("giveUpButton"),
+      permissionWrap: document.getElementById("permissionWrap"),
+      permissionButton: document.getElementById("permissionButton"),
+      statusText: document.getElementById("statusText"),
+      rewardText: document.getElementById("rewardText"),
+      mapOverlay: document.getElementById("mapOverlay"),
+      mapCloseButton: document.getElementById("mapCloseButton"),
+      pointsMap: document.getElementById("pointsMap"),
+      mapCountText: document.getElementById("mapCountText"),
+      mapCard: document.getElementById("mapCard"),
+      mapCardImage: document.getElementById("mapCardImage"),
+      mapCardTitle: document.getElementById("mapCardTitle"),
+      mapCardSource: document.getElementById("mapCardSource"),
+      mapCardCredit: document.getElementById("mapCardCredit"),
+      mapCardLicense: document.getElementById("mapCardLicense"),
+      mapCardLink: document.getElementById("mapCardLink")
+    };
+
+    const state = {
+      user: null,
+      searchCentre: null,
+      searchCentreAccuracy: Infinity,
+      images: [],
+      currentId: null,
+      heading: null,
+      headingSource: "none",
+      fetching: false,
+      points: readNumber(POINT_KEY, 0),
+      claimedIds: readSet(CLAIMED_KEY),
+      claimedLocations: readSet(CLAIMED_LOCATION_KEY),
+      skippedIds: readSet(SKIPPED_KEY),
+      skippedLocations: readObject(SKIPPED_LOCATIONS_KEY),
+      claimedTargets: readArray(CLAIMED_TARGETS_KEY),
+      rewardLockUntil: 0,
+      statusTimer: null,
+      autoFollow: true,
+      lastFetchAt: 0,
+      lastLocationAt: 0,
+      bestAccuracy: Infinity,
+      watchId: null,
+      wakeLock: null,
+      arrowRotation: 0,
+      hasArrowRotation: false,
+      lastDisplayedTargetId: null,
+      map: null,
+      pointLayer: null
+    };
+
+    init();
+
+    function init() {
+      migrateLegacySkippedIds();
+      elements.pointsValue.textContent = String(state.points);
+      updateMapCountText();
+      elements.giveUpButton.addEventListener("click", giveUpCurrentTarget);
+      elements.pointsButton.addEventListener("click", openPointsMap);
+      elements.mapCloseButton.addEventListener("click", closePointsMap);
+      elements.permissionButton.addEventListener("click", requestOrientationPermission);
+      elements.targetImage.addEventListener("load", () => {
+        elements.targetImage.classList.add("is-ready");
+      });
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      setupOrientation();
+      startLiveLocation();
+      requestWakeLock();
+      window.setInterval(updateCurrentTargetDisplay, 1000);
+    }
+
+    function startLiveLocation() {
+      if (!("geolocation" in navigator)) {
+        showEmpty("This browser does not support geolocation.");
+        return;
+      }
+
+      const liveGpsOptions = {
+        enableHighAccuracy: true,
+        maximumAge: 0
+      };
+
+      state.watchId = navigator.geolocation.watchPosition(
+        handlePosition,
+        handleLocationError,
+        liveGpsOptions
+      );
+
+      navigator.geolocation.getCurrentPosition(
+        handlePosition,
+        handleInitialLocationError,
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 60000
+        }
+      );
+
+      showStatus("Starting high-accuracy GPS. The nearest image will update as you move.", 6000);
+    }
+
+    function handlePosition(position) {
+      const coords = position.coords;
+      const now = Date.now();
+
+      state.user = {
+        lat: coords.latitude,
+        lon: coords.longitude,
+        accuracy: coords.accuracy || 999,
+        speed: coords.speed,
+        movementHeading: coords.heading
+      };
+
+      state.lastLocationAt = now;
+      state.bestAccuracy = Math.min(state.bestAccuracy, state.user.accuracy);
+
+      if (state.heading === null && typeof coords.heading === "number" && coords.speed > 0.8) {
+        state.heading = normaliseDegrees(coords.heading);
+        state.headingSource = "movement";
+        elements.stage.classList.remove("no-heading");
+      }
+
+      updateImageDistances();
+      chooseNearestAvailableTarget();
+
+      const movedFarEnough = !state.searchCentre || distanceBetween(state.user, state.searchCentre) > REFETCH_DISTANCE_METRES;
+      const accuracyImproved = state.user.accuracy < state.searchCentreAccuracy * 0.7;
+      const waitedLongEnough = (now - state.lastFetchAt) > MIN_FETCH_INTERVAL_MS;
+
+      if ((movedFarEnough || accuracyImproved || state.images.length === 0) && waitedLongEnough && !state.fetching) {
+        fetchNearbyCommonsImages(state.user.lat, state.user.lon, state.user.accuracy);
+      }
+
+      hideEmpty();
+      updateCurrentTargetDisplay();
+      checkReachedTarget();
+    }
+
+    function handleInitialLocationError(error) {
+      if (!state.user) {
+        showStatus("Still waiting for GPS. Try going outside and keep the screen awake.", 6000);
+      }
+    }
+
+    function handleLocationError(error) {
+      if (state.user) {
+        showStatus("GPS is still running, but the browser reported a temporary location error.", 3200);
+        return;
+      }
+
+      let message = "Location permission is needed for live image hunting.";
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        message = "The browser could not get a GPS position.";
+      }
+      if (error.code === error.TIMEOUT) {
+        message = "GPS is taking too long. Go outside and keep the page open.";
+      }
+      showEmpty(message);
+      showStatus(message, 6000);
+    }
+
+    async function requestWakeLock() {
+      if (!("wakeLock" in navigator)) {
+        return;
+      }
+
+      try {
+        state.wakeLock = await navigator.wakeLock.request("screen");
+      } catch (error) {
+        state.wakeLock = null;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        requestWakeLock();
+        updateCurrentTargetDisplay();
+      }
+    }
+
+    function setupOrientation() {
+      if (!("DeviceOrientationEvent" in window)) {
+        setHeadingNotice("no heading");
+        return;
+      }
+
+      if (typeof DeviceOrientationEvent.requestPermission === "function") {
+        elements.permissionWrap.classList.add("is-visible");
+        setHeadingNotice("tap arrow permission");
+        return;
+      }
+
+      startOrientationListeners();
+    }
+
+    async function requestOrientationPermission() {
+      try {
+        const result = await DeviceOrientationEvent.requestPermission();
+        if (result === "granted") {
+          elements.permissionWrap.classList.remove("is-visible");
+          startOrientationListeners();
+          showStatus("Live facing direction enabled.", 2600);
+        } else {
+          setHeadingNotice("heading denied");
+          showStatus("Direction permission was not granted.", 3600);
+        }
+      } catch (error) {
+        setHeadingNotice("heading blocked");
+        showStatus("The browser blocked device heading access. Use HTTPS on a phone.", 4200);
+      }
+    }
+
+    function startOrientationListeners() {
+      window.addEventListener("deviceorientationabsolute", handleOrientation, true);
+      window.addEventListener("deviceorientation", handleOrientation, true);
+      setHeadingNotice("finding heading");
+    }
+
+    function handleOrientation(event) {
+      let heading = null;
+      let source = "device";
+
+      if (typeof event.webkitCompassHeading === "number") {
+        heading = event.webkitCompassHeading;
+        source = "compass";
+      } else if (typeof event.alpha === "number") {
+        const screenAngle = getScreenAngle();
+        heading = (360 - event.alpha + screenAngle + 360) % 360;
+        source = event.absolute ? "absolute" : "approx";
+      }
+
+      if (heading === null || Number.isNaN(heading)) {
+        return;
+      }
+
+      const cleanHeading = normaliseDegrees(heading);
+      state.heading = state.heading === null
+        ? cleanHeading
+        : smoothAngle(state.heading, cleanHeading, HEADING_SMOOTHING);
+      state.headingSource = source;
+      elements.stage.classList.remove("no-heading");
+      updateCurrentTargetDisplay();
+    }
+
+    async function fetchNearbyCommonsImages(lat, lon, accuracy) {
+      state.fetching = true;
+      state.searchCentre = { lat, lon };
+      state.searchCentreAccuracy = accuracy || Infinity;
+      state.lastFetchAt = Date.now();
+      elements.giveUpButton.disabled = true;
+      showStatus("Scanning geotagged Wikimedia Commons images nearby.", 1800);
+
+      try {
+        const url = new URL(COMMONS_API);
+        url.searchParams.set("origin", "*");
+        url.searchParams.set("action", "query");
+        url.searchParams.set("format", "json");
+        url.searchParams.set("generator", "geosearch");
+        url.searchParams.set("ggscoord", `${lat}|${lon}`);
+        url.searchParams.set("ggsradius", String(SEARCH_RADIUS_METRES));
+        url.searchParams.set("ggslimit", String(MAX_RESULTS));
+        url.searchParams.set("ggsnamespace", "6");
+        url.searchParams.set("ggsprimary", "all");
+        url.searchParams.set("prop", "imageinfo|coordinates");
+        url.searchParams.set("iiprop", "url|mime|size|extmetadata");
+        url.searchParams.set("iiurlwidth", "2200");
+
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`Commons API returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        const pages = Object.values(data.query?.pages || {});
+        const normalised = pages.map(normaliseCommonsPage).filter(Boolean);
+
+        state.images = mergeImages([], normalised);
+        updateImageDistances();
+        chooseNearestAvailableTarget();
+
+        if (state.images.length === 0) {
+          showEmpty("No geotagged Commons image found within 10 km.");
+          showStatus("No geotagged Commons image found within 10 km.", 5000);
+          return;
+        }
+
+        hideEmpty();
+
+        if (state.autoFollow || !state.currentId || !state.images.some(image => image.id === state.currentId)) {
+          const nextTarget = findFirstAvailableTarget() || state.images[0];
+          state.currentId = nextTarget.id;
+        }
+
+        elements.giveUpButton.disabled = state.images.length < 1;
+        updateCurrentTargetDisplay(true);
+      } catch (error) {
+        showStatus("Commons image search failed. Check connection and try again.", 5000);
+        if (state.images.length === 0) {
+          showEmpty("Commons image search failed.");
+        }
+      } finally {
+        state.fetching = false;
+        elements.giveUpButton.disabled = state.images.length < 1;
+      }
+    }
+
+    function normaliseCommonsPage(page) {
+      const imageInfo = page.imageinfo?.[0];
+      const coords = page.coordinates?.[0];
+      if (!imageInfo || !coords) {
+        return null;
+      }
+      if (!imageInfo.mime || !imageInfo.mime.startsWith("image/")) {
+        return null;
+      }
+
+      const metadata = imageInfo.extmetadata || {};
+      const title = cleanTitle(page.title);
+      const creator = htmlToText(metadata.Artist?.value || metadata.Credit?.value || "Unknown creator");
+      const license = htmlToText(metadata.LicenseShortName?.value || metadata.UsageTerms?.value || "Licence listed on Commons");
+      const pageUrl = imageInfo.descriptionurl || `https://commons.wikimedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, "_"))}`;
+
+      return {
+        id: String(page.pageid),
+        title,
+        lat: Number(coords.lat),
+        lon: Number(coords.lon),
+        imageUrl: imageInfo.thumburl || imageInfo.url,
+        pageUrl,
+        creator,
+        license,
+        source: "Wikimedia Commons",
+        distance: Infinity,
+        bearing: 0
+      };
+    }
+
+    function mergeImages(existing, incoming) {
+      const byId = new Map(existing.map(image => [image.id, image]));
+      incoming.forEach(image => byId.set(image.id, { ...byId.get(image.id), ...image }));
+      return Array.from(byId.values()).filter(image => isAvailableImage(image));
+    }
+
+    function updateImageDistances() {
+      if (!state.user) {
+        return;
+      }
+
+      state.images.forEach(image => {
+        image.distance = distanceBetween(state.user, image);
+        image.bearing = bearingBetween(state.user.lat, state.user.lon, image.lat, image.lon);
+      });
+
+      state.images.sort((a, b) => a.distance - b.distance);
+    }
+
+    function updateCurrentTargetDisplay(forceImageReload = false) {
+      if (!state.user) {
+        return;
+      }
+
+      updateImageDistances();
+
+      chooseNearestAvailableTarget();
+
+      const target = getCurrentTarget();
+      if (!target) {
+        elements.distanceValue.textContent = "GPS active";
+        elements.directionValue.textContent = "searching";
+        elements.headingValue.textContent = getLocationLabel();
+        elements.giveUpButton.disabled = true;
+        return;
+      }
+
+      elements.giveUpButton.disabled = false;
+
+      const reached = isClaimedTarget(target);
+      const relativeBearing = state.heading === null ? target.bearing : normaliseDegrees(target.bearing - state.heading);
+      updateArrowRotation(relativeBearing);
+
+      elements.distanceValue.textContent = `${formatDistance(target.distance)} away`;
+      elements.directionValue.textContent = `${cardinalFromDegrees(target.bearing)} ${Math.round(target.bearing)}°`;
+      elements.headingValue.textContent = getLocationLabel();
+      elements.imageTitle.textContent = reached ? `${target.title} · claimed` : target.title;
+      elements.sourceValue.textContent = target.source;
+      elements.creditValue.textContent = trimText(target.creator, 72);
+      elements.licenseValue.textContent = target.license;
+      elements.pageLink.href = target.pageUrl;
+
+      const targetChanged = state.lastDisplayedTargetId !== target.id;
+      if (forceImageReload || targetChanged || elements.targetImage.src !== target.imageUrl) {
+        state.lastDisplayedTargetId = target.id;
+        elements.targetImage.classList.remove("is-ready");
+        elements.targetImage.src = target.imageUrl;
+      }
+    }
+
+    function chooseNearestAvailableTarget() {
+      updateImageDistances();
+
+      const nearest = findFirstAvailableTarget();
+      if (!nearest) {
+        state.currentId = null;
+        return;
+      }
+
+      const current = state.images.find(image => image.id === state.currentId) || null;
+      if (!current || !isAvailableImage(current)) {
+        state.currentId = nearest.id;
+        return;
+      }
+
+      const nearestIsClearlyCloser = nearest.id !== current.id
+        && Number.isFinite(nearest.distance)
+        && Number.isFinite(current.distance)
+        && nearest.distance + TARGET_SWITCH_DEADBAND_METRES < current.distance;
+
+      if (nearestIsClearlyCloser) {
+        state.currentId = nearest.id;
+      }
+    }
+
+    function getCurrentTarget() {
+      if (!state.currentId) {
+        chooseNearestAvailableTarget();
+      }
+
+      const target = state.images.find(image => image.id === state.currentId) || null;
+      if (!target || !isAvailableImage(target)) {
+        chooseNearestAvailableTarget();
+        return state.images.find(image => image.id === state.currentId) || null;
+      }
+
+      return target;
+    }
+
+    function giveUpCurrentTarget() {
+      const target = getCurrentTarget();
+      if (!target) {
+        return;
+      }
+
+      const key = locationKey(target);
+      const existingSkip = state.skippedLocations[key];
+      const message = existingSkip
+        ? "Are you sure? This is the second skip for this location, so it will be removed permanently and 1 point will be deducted."
+        : "Are you sure? This location will be hidden for 24 hours and 1 point will be deducted.";
+
+      const confirmed = window.confirm(message);
+      if (!confirmed) {
+        return;
+      }
+
+      state.points = Math.max(0, state.points - 1);
+      recordSkippedLocation(target);
+      localStorage.setItem(POINT_KEY, String(state.points));
+      elements.pointsValue.textContent = String(state.points);
+
+      state.images = state.images.filter(image => isAvailableImage(image));
+      chooseNearestAvailableTarget();
+      const next = getCurrentTarget();
+
+      if (next) {
+        const skippedRecord = state.skippedLocations[key];
+        const status = skippedRecord && skippedRecord.permanent
+          ? "Location skipped permanently. 1 point deducted."
+          : "Location skipped for 24 hours. 1 point deducted.";
+        showStatus(status, 3200);
+        updateCurrentTargetDisplay(true);
+      } else {
+        showEmpty("No more available nearby locations. Temporarily skipped places can return after 24 hours.");
+        showStatus("No more available nearby locations. Some skipped places may return after 24 hours.", 4200);
+      }
+    }
+
+    function findFirstAvailableTarget() {
+      return state.images.find(image => isAvailableImage(image)) || null;
+    }
+
+    function isAvailableImage(image) {
+      return image
+        && !state.claimedIds.has(image.id)
+        && !state.claimedLocations.has(locationKey(image))
+        && !isLocationSkipped(image);
+    }
+
+    function isClaimedTarget(image) {
+      return image
+        && (state.claimedIds.has(image.id) || state.claimedLocations.has(locationKey(image)));
+    }
+
+    function locationKey(image) {
+      return `${Number(image.lat).toFixed(5)},${Number(image.lon).toFixed(5)}`;
+    }
+
+    function isLocationSkipped(image) {
+      const record = state.skippedLocations[locationKey(image)];
+      if (!record) {
+        return false;
+      }
+
+      if (record.permanent) {
+        return true;
+      }
+
+      const firstSkippedAt = Number(record.firstSkippedAt || record.lastSkippedAt || 0);
+      if (!Number.isFinite(firstSkippedAt) || firstSkippedAt <= 0) {
+        return false;
+      }
+
+      return Date.now() - firstSkippedAt < TEMP_SKIP_DURATION_MS;
+    }
+
+    function recordSkippedLocation(target) {
+      const key = locationKey(target);
+      const now = Date.now();
+      const existing = state.skippedLocations[key];
+
+      state.skippedLocations[key] = {
+        locationKey: key,
+        title: target.title,
+        lat: target.lat,
+        lon: target.lon,
+        imageUrl: target.imageUrl,
+        pageUrl: target.pageUrl,
+        creator: target.creator,
+        license: target.license,
+        source: target.source,
+        firstSkippedAt: existing?.firstSkippedAt || now,
+        lastSkippedAt: now,
+        skipCount: existing ? Number(existing.skipCount || 1) + 1 : 1,
+        permanent: Boolean(existing)
+      };
+
+      localStorage.setItem(SKIPPED_LOCATIONS_KEY, JSON.stringify(state.skippedLocations));
+    }
+
+    function migrateLegacySkippedIds() {
+      if (state.skippedIds.size > 0 && Object.keys(state.skippedLocations).length === 0) {
+        localStorage.removeItem(SKIPPED_KEY);
+        state.skippedIds = new Set();
+      }
+    }
+
+    function checkReachedTarget() {
+      const target = getCurrentTarget();
+      if (!target || isClaimedTarget(target) || !state.user) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now < state.rewardLockUntil) {
+        return;
+      }
+
+      if (state.user.accuracy > POINT_ACCURACY_METRES) {
+        return;
+      }
+
+      const threshold = clamp(state.user.accuracy * 1.25, 12, 35);
+      if (target.distance > threshold) {
+        return;
+      }
+
+      state.claimedIds.add(target.id);
+      state.claimedLocations.add(locationKey(target));
+      saveClaimedTarget(target);
+      state.autoFollow = true;
+      state.points += 1;
+      state.rewardLockUntil = now + 5000;
+      localStorage.setItem(POINT_KEY, String(state.points));
+      localStorage.setItem(CLAIMED_KEY, JSON.stringify(Array.from(state.claimedIds)));
+      localStorage.setItem(CLAIMED_LOCATION_KEY, JSON.stringify(Array.from(state.claimedLocations)));
+      migrateLegacySkippedIds();
+      elements.pointsValue.textContent = String(state.points);
+      updateMapCountText();
+      showReward();
+      showStatus(`Target reached. GPS accuracy ${Math.round(state.user.accuracy)}m. +1 point.`, 2600);
+      updateCurrentTargetDisplay();
+
+      window.setTimeout(() => {
+        state.images = state.images.filter(image => isAvailableImage(image));
+        chooseNearestAvailableTarget();
+        const next = getCurrentTarget();
+        if (next) {
+          updateCurrentTargetDisplay(true);
+        } else {
+          showEmpty("No more available nearby locations.");
+        }
+      }, 1600);
+    }
+
+    function updateArrowRotation(targetRotation) {
+      const cleanTarget = normaliseDegrees(targetRotation);
+
+      if (!state.hasArrowRotation) {
+        state.arrowRotation = cleanTarget;
+        state.hasArrowRotation = true;
+      } else {
+        const delta = angleDifference(state.arrowRotation, cleanTarget);
+        if (Math.abs(delta) > ARROW_DEADBAND_DEGREES) {
+          state.arrowRotation = normaliseDegrees(state.arrowRotation + delta * ARROW_SMOOTHING);
+        }
+      }
+
+      elements.stage.style.setProperty("--arrowRotation", `${state.arrowRotation}deg`);
+    }
+
+    function smoothAngle(current, target, amount) {
+      const delta = angleDifference(current, target);
+      return normaliseDegrees(current + delta * amount);
+    }
+
+    function angleDifference(from, to) {
+      return ((to - from + 540) % 360) - 180;
+    }
+
+    function getLocationLabel() {
+      if (!state.user || !state.lastLocationAt) {
+        return "GPS pending";
+      }
+
+      const age = Math.max(0, Math.round((Date.now() - state.lastLocationAt) / 1000));
+      const accuracy = Math.round(state.user.accuracy);
+      let quality = "poor";
+      if (accuracy <= TARGET_ACCURACY_METRES) {
+        quality = "good";
+      } else if (accuracy <= POINT_ACCURACY_METRES) {
+        quality = "usable";
+      }
+
+      const headingText = state.heading === null ? "" : ` · heading ${Math.round(state.heading)}°`;
+      return `GPS ${quality} ±${accuracy}m · best ±${Math.round(state.bestAccuracy)}m · ${age}s${headingText}`;
+    }
+
+    function setHeadingNotice(text) {
+      elements.headingValue.textContent = text;
+    }
+
+    function showStatus(message, duration = 3200) {
+      elements.statusText.textContent = message;
+      elements.statusText.classList.add("is-visible");
+      window.clearTimeout(state.statusTimer);
+      state.statusTimer = window.setTimeout(() => {
+        elements.statusText.classList.remove("is-visible");
+      }, duration);
+    }
+
+    function openPointsMap() {
+      elements.mapOverlay.classList.add("is-visible");
+      elements.mapOverlay.setAttribute("aria-hidden", "false");
+      elements.mapCard.hidden = true;
+      ensurePointsMap();
+      renderPointsMap();
+
+      window.setTimeout(() => {
+        if (state.map) {
+          state.map.invalidateSize();
+        }
+      }, 80);
+    }
+
+    function closePointsMap() {
+      elements.mapOverlay.classList.remove("is-visible");
+      elements.mapOverlay.setAttribute("aria-hidden", "true");
+      elements.mapCard.hidden = true;
+    }
+
+    function ensurePointsMap() {
+      if (state.map || !window.L) {
+        if (!window.L) {
+          showStatus("Map library failed to load. Check connection.", 3600);
+        }
+        return;
+      }
+
+      state.map = L.map(elements.pointsMap, {
+        zoomControl: false,
+        attributionControl: true
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap"
+      }).addTo(state.map);
+
+      state.pointLayer = L.layerGroup().addTo(state.map);
+    }
+
+    function renderPointsMap() {
+      updateMapCountText();
+
+      if (!state.map || !state.pointLayer) {
+        return;
+      }
+
+      state.pointLayer.clearLayers();
+      const targets = getUniqueClaimedTargets();
+
+      if (targets.length === 0) {
+        const fallback = state.user ? [state.user.lat, state.user.lon] : [0, 0];
+        state.map.setView(fallback, state.user ? 15 : 2);
+        showStatus("No points collected yet.", 2200);
+        return;
+      }
+
+      const bounds = [];
+
+      targets.forEach(target => {
+        const latLng = [Number(target.lat), Number(target.lon)];
+        bounds.push(latLng);
+
+        const marker = L.marker(latLng, {
+          icon: L.divIcon({
+            className: "",
+            html: '<div class="point-marker"></div>',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
+          })
+        });
+
+        marker.on("click", () => showPointCard(target));
+        marker.addTo(state.pointLayer);
+      });
+
+      if (bounds.length === 1) {
+        state.map.setView(bounds[0], 17);
+      } else {
+        state.map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17 });
+      }
+    }
+
+    function showPointCard(target) {
+      elements.mapCard.hidden = false;
+      elements.mapCardImage.src = target.imageUrl || "";
+      elements.mapCardImage.alt = target.title || "Claimed Commons image";
+      elements.mapCardTitle.textContent = target.title || "Claimed point";
+      elements.mapCardSource.textContent = target.source || "Wikimedia Commons";
+      elements.mapCardCredit.textContent = target.creator || "Unknown creator";
+      elements.mapCardLicense.textContent = target.license || "Licence listed on Commons";
+      elements.mapCardLink.href = target.pageUrl || "https://commons.wikimedia.org/";
+    }
+
+    function saveClaimedTarget(target) {
+      const storedTarget = {
+        id: target.id,
+        locationKey: locationKey(target),
+        title: target.title,
+        lat: target.lat,
+        lon: target.lon,
+        imageUrl: target.imageUrl,
+        pageUrl: target.pageUrl,
+        creator: target.creator,
+        license: target.license,
+        source: target.source,
+        claimedAt: new Date().toISOString()
+      };
+
+      const byLocation = new Map(state.claimedTargets.map(item => [item.locationKey || locationKey(item), item]));
+      byLocation.set(storedTarget.locationKey, storedTarget);
+      state.claimedTargets = Array.from(byLocation.values());
+      localStorage.setItem(CLAIMED_TARGETS_KEY, JSON.stringify(state.claimedTargets));
+    }
+
+    function getUniqueClaimedTargets() {
+      const byLocation = new Map();
+      state.claimedTargets.forEach(target => {
+        if (!target || !Number.isFinite(Number(target.lat)) || !Number.isFinite(Number(target.lon))) {
+          return;
+        }
+        byLocation.set(target.locationKey || locationKey(target), target);
+      });
+      return Array.from(byLocation.values());
+    }
+
+    function updateMapCountText() {
+      if (!elements.mapCountText) {
+        return;
+      }
+      const count = getUniqueClaimedTargets().length;
+      elements.mapCountText.textContent = count === 1 ? "1 location" : `${count} locations`;
+    }
+
+    function showReward() {
+      elements.rewardText.classList.remove("is-visible");
+      void elements.rewardText.offsetWidth;
+      elements.rewardText.classList.add("is-visible");
+    }
+
+    function showEmpty(message) {
+      elements.emptyState.textContent = message;
+      elements.emptyState.classList.add("is-visible");
+    }
+
+    function hideEmpty() {
+      elements.emptyState.classList.remove("is-visible");
+    }
+
+    function distanceBetween(a, b) {
+      const earthRadius = 6371000;
+      const lat1 = toRadians(a.lat);
+      const lat2 = toRadians(b.lat);
+      const deltaLat = toRadians(b.lat - a.lat);
+      const deltaLon = toRadians(b.lon - a.lon);
+      const sinLat = Math.sin(deltaLat / 2);
+      const sinLon = Math.sin(deltaLon / 2);
+      const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+      return earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    }
+
+    function bearingBetween(lat1, lon1, lat2, lon2) {
+      const startLat = toRadians(lat1);
+      const endLat = toRadians(lat2);
+      const deltaLon = toRadians(lon2 - lon1);
+      const y = Math.sin(deltaLon) * Math.cos(endLat);
+      const x = Math.cos(startLat) * Math.sin(endLat) - Math.sin(startLat) * Math.cos(endLat) * Math.cos(deltaLon);
+      return normaliseDegrees(toDegrees(Math.atan2(y, x)));
+    }
+
+    function formatDistance(metres) {
+      if (!Number.isFinite(metres)) {
+        return "scanning";
+      }
+      if (metres < 1000) {
+        return `${Math.round(metres)} m`;
+      }
+      return `${(metres / 1000).toFixed(2)} km`;
+    }
+
+    function cardinalFromDegrees(degrees) {
+      const labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+      return labels[Math.round(normaliseDegrees(degrees) / 45) % 8];
+    }
+
+    function cleanTitle(title) {
+      return String(title || "Untitled Commons image")
+        .replace(/^File:/i, "")
+        .replace(/_/g, " ")
+        .replace(/\.(jpg|jpeg|png|gif|webp|tif|tiff|svg)$/i, "");
+    }
+
+    function htmlToText(html) {
+      const container = document.createElement("div");
+      container.innerHTML = String(html || "");
+      return container.textContent.trim().replace(/\s+/g, " ") || "Unknown";
+    }
+
+    function trimText(text, maxLength) {
+      const clean = String(text || "Unknown").replace(/\s+/g, " ").trim();
+      if (clean.length <= maxLength) {
+        return clean;
+      }
+      return `${clean.slice(0, maxLength - 1)}…`;
+    }
+
+    function normaliseDegrees(degrees) {
+      return ((degrees % 360) + 360) % 360;
+    }
+
+    function toRadians(degrees) {
+      return degrees * Math.PI / 180;
+    }
+
+    function toDegrees(radians) {
+      return radians * 180 / Math.PI;
+    }
+
+    function getScreenAngle() {
+      if (screen.orientation && typeof screen.orientation.angle === "number") {
+        return screen.orientation.angle;
+      }
+      if (typeof window.orientation === "number") {
+        return window.orientation;
+      }
+      return 0;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function readNumber(key, fallback) {
+      const value = Number(localStorage.getItem(key));
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function readObject(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || "{}");
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function readArray(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || "[]");
+        return Array.isArray(value) ? value : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function readSet(key) {
+      try {
+        return new Set(JSON.parse(localStorage.getItem(key) || "[]"));
+      } catch (error) {
+        return new Set();
+      }
+    }
+  </script>
+</body>
+
+</html>
