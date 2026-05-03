@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Nearby Commons Image Hunt v14 Sharp Arrow</title>
+  <title>Nearby Commons Image Hunt v15 Auto Arrow</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     :root {
@@ -96,7 +96,7 @@
 
     .no-heading .arrow { opacity: 0.35; }
 
-    .top-left, .top-right, .bottom-left, .bottom-right, .status {
+    .top-left, .top-right, .bottom-left, .bottom-right, .status, .version-badge {
       position: absolute;
       z-index: 5;
     }
@@ -128,7 +128,7 @@
       bottom: max(10px, env(safe-area-inset-bottom));
     }
 
-    .chip, .panel, .next-button, .permission-button, .status {
+    .chip, .panel, .next-button, .permission-button, .status, .version-badge {
       background: var(--black);
       color: var(--white);
       border: 1px solid var(--white);
@@ -231,6 +231,17 @@
 
     .permission-wrap.hide-permission .permission-button {
       display: none;
+    }
+
+    .version-badge {
+      right: max(10px, env(safe-area-inset-right));
+      top: max(84px, calc(env(safe-area-inset-top) + 84px));
+      padding: 3px 5px;
+      font-size: 10px;
+      line-height: 1;
+      text-transform: uppercase;
+      pointer-events: none;
+      opacity: 0.72;
     }
 
     .status {
@@ -512,6 +523,7 @@
       <button class="permission-button" id="permissionButton" type="button">enable live arrow</button>
     </div>
 
+    <div class="version-badge" id="versionBadge">v15</div>
     <div class="status is-visible" id="statusText">Allow precise location, then wait outside for GPS to improve.</div>
     <div class="reward" id="rewardText">+1 point</div>
 
@@ -559,6 +571,10 @@
     const MOVEMENT_HEADING_MIN_DISTANCE = 4;
     const MOVEMENT_HEADING_MAX_AGE_MS = 9000;
     const COMPASS_ACCURACY_LIMIT_DEGREES = 35;
+    const AUTO_COMPASS_OFFSET_KEY = "commonsImageHunt.autoCompassOffset.v1";
+    const AUTO_COMPASS_OFFSET_SMOOTHING = 0.08;
+    const AUTO_COMPASS_OFFSET_MAX_STEP = 26;
+    const AUTO_COMPASS_OFFSET_MAX_AGE_MS = 10 * 60 * 1000;
     const ARROW_SMOOTHING = 0.08;
     const COMPASS_SMOOTHING = 0.10;
     const MOVEMENT_HEADING_SMOOTHING = 0.28;
@@ -584,6 +600,7 @@
       permissionButton: document.getElementById("permissionButton"),
       statusText: document.getElementById("statusText"),
       rewardText: document.getElementById("rewardText"),
+      versionBadge: document.getElementById("versionBadge"),
       mapOverlay: document.getElementById("mapOverlay"),
       mapCloseButton: document.getElementById("mapCloseButton"),
       pointsMap: document.getElementById("pointsMap"),
@@ -611,6 +628,9 @@
       lastMovementHeadingAt: 0,
       lastCompassHeadingAt: 0,
       compassAccuracy: null,
+      autoCompassOffset: readNumber(AUTO_COMPASS_OFFSET_KEY, 0),
+      hasAutoCompassOffset: localStorage.getItem(AUTO_COMPASS_OFFSET_KEY) !== null,
+      lastAutoCompassOffsetAt: 0,
       fetching: false,
       points: readNumber(POINT_KEY, 0),
       claimedIds: readSet(CLAIMED_KEY),
@@ -852,6 +872,7 @@
         : smoothAngle(state.compassHeading, cleanHeading, COMPASS_SMOOTHING);
       state.lastCompassHeadingAt = Date.now();
       state.headingSource = source;
+      updateAutoCompassOffset(state.lastCompassHeadingAt);
       updateEffectiveHeading();
       updateCurrentTargetDisplay();
     }
@@ -1218,6 +1239,7 @@
           ? gpsHeading
           : smoothAngle(state.movementHeading, gpsHeading, MOVEMENT_HEADING_SMOOTHING);
         state.lastMovementHeadingAt = now;
+        updateAutoCompassOffset(now);
         return;
       }
 
@@ -1235,6 +1257,46 @@
         ? calculatedHeading
         : smoothAngle(state.movementHeading, calculatedHeading, MOVEMENT_HEADING_SMOOTHING);
       state.lastMovementHeadingAt = now;
+      updateAutoCompassOffset(now);
+    }
+
+    function updateAutoCompassOffset(now) {
+      if (state.movementHeading === null || state.compassHeading === null) {
+        return;
+      }
+
+      const hasRecentMovement = now - state.lastMovementHeadingAt < MOVEMENT_HEADING_MAX_AGE_MS;
+      const hasRecentCompass = now - state.lastCompassHeadingAt < MOVEMENT_HEADING_MAX_AGE_MS;
+      if (!hasRecentMovement || !hasRecentCompass) {
+        return;
+      }
+
+      if (state.compassAccuracy !== null && state.compassAccuracy > COMPASS_ACCURACY_LIMIT_DEGREES) {
+        return;
+      }
+
+      const desiredOffset = angleDifference(state.compassHeading, state.movementHeading);
+      if (Math.abs(desiredOffset) > AUTO_COMPASS_OFFSET_MAX_STEP && state.hasAutoCompassOffset) {
+        return;
+      }
+
+      state.autoCompassOffset = state.hasAutoCompassOffset
+        ? normaliseSignedDegrees(state.autoCompassOffset + angleDifference(state.autoCompassOffset, desiredOffset) * AUTO_COMPASS_OFFSET_SMOOTHING)
+        : desiredOffset;
+      state.hasAutoCompassOffset = true;
+      state.lastAutoCompassOffsetAt = now;
+      localStorage.setItem(AUTO_COMPASS_OFFSET_KEY, String(state.autoCompassOffset));
+    }
+
+    function getCorrectedCompassHeading() {
+      const offsetIsFresh = state.hasAutoCompassOffset
+        && (Date.now() - state.lastAutoCompassOffsetAt < AUTO_COMPASS_OFFSET_MAX_AGE_MS || localStorage.getItem(AUTO_COMPASS_OFFSET_KEY) !== null);
+
+      if (!offsetIsFresh) {
+        return state.compassHeading;
+      }
+
+      return normaliseDegrees(state.compassHeading + state.autoCompassOffset);
     }
 
     function updateEffectiveHeading() {
@@ -1250,8 +1312,8 @@
       }
 
       if (state.compassHeading !== null) {
-        state.effectiveHeading = state.compassHeading;
-        state.headingSource = "compass";
+        state.effectiveHeading = getCorrectedCompassHeading();
+        state.headingSource = state.hasAutoCompassOffset ? "compass+" : "compass";
         elements.stage.classList.remove("no-heading");
         return;
       }
@@ -1286,6 +1348,10 @@
       return ((to - from + 540) % 360) - 180;
     }
 
+    function normaliseSignedDegrees(degrees) {
+      return ((degrees + 540) % 360) - 180;
+    }
+
     function getLocationLabel() {
       if (!state.user || !state.lastLocationAt) {
         return "GPS pending";
@@ -1300,7 +1366,10 @@
         quality = "usable";
       }
 
-      const headingText = state.effectiveHeading === null ? "" : ` · ${state.headingSource} ${Math.round(state.effectiveHeading)}°`;
+      const offsetText = state.hasAutoCompassOffset && state.headingSource === "compass+"
+        ? `/${Math.round(state.autoCompassOffset)}`
+        : "";
+      const headingText = state.effectiveHeading === null ? "" : ` · ${state.headingSource} ${Math.round(state.effectiveHeading)}°${offsetText}`;
       return `GPS ${quality} ±${accuracy}m · best ±${Math.round(state.bestAccuracy)}m · ${age}s${headingText}`;
     }
 
